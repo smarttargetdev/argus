@@ -1,0 +1,6 @@
+{
+  "name": "Vektor IAM",
+  "description": "Plataforma de gerenciamento de identidade, OAuth 2.0, RBAC, 2FA e governanca na borda com GraphQL, SQLite/D1 e conformidade LGPD/GDPR.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
