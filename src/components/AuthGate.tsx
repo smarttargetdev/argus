@@ -35,14 +35,12 @@ interface AuthGateProps {
 }
 
 export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [systems, setSystems] = useState<PublicSystemItem[]>([]);
   const [idps, setIdps] = useState<PublicIdpItem[]>([]);
   const [selectedSlug, setSelectedSlug] = useState('vektor-core');
 
   const [email, setEmail] = useState('admin@vektor.iam');
   const [password, setPassword] = useState('Vektor@2026!');
-  const [displayName, setDisplayName] = useState('');
 
   const [mfaPending, setMfaPending] = useState<MfaPendingState | null>(null);
   const [mfaMethod, setMfaMethod] = useState<'totp' | 'sms' | 'backup_code'>('totp');
@@ -83,16 +81,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     setSmsPreview(null);
 
     try {
-      const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const body =
-        mode === 'login'
-          ? { email, password, systemSlug: selectedSlug }
-          : { email, displayName, password, systemSlug: selectedSlug };
-
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ email, password, systemSlug: selectedSlug }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -245,7 +237,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           <div className="w-8 h-8 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F]">
             <Shield className="w-4 h-4" />
           </div>
-          <span className="font-display text-lg font-semibold tracking-tight text-white">Smarties Gate</span>
+          <span className="font-display text-lg font-semibold tracking-tight text-white">Smarties Secure Gate</span>
         </div>
         <div className="hidden sm:flex items-center gap-3 text-xs text-slate-400">
           <span>OAuth 2.0 / OIDC</span>
@@ -261,18 +253,18 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         <div className="lg:col-span-5 flex flex-col justify-between bg-[#111827] border border-slate-800/90 rounded-lg p-7">
           <div className="space-y-6">
             <div className="space-y-2">
-              <p className="text-xs font-medium text-[#F6821F]">Controle de Acesso na Borda</p>
+              <p className="text-xs font-medium text-[#F6821F]">Gerenciamento de Controle de Acesso</p>
               <h1 className="font-display text-2xl font-semibold text-white leading-tight [text-wrap:balance]">
                 Identidade centralizada, claims em JWT e latência mínima.
               </h1>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Autentique-se em qualquer sistema OAuth 2.0 cadastrado, valide desafios de dois fatores (TOTP ou SMS) e gerencie políticas RBAC via GraphQL.
+                Selecione o sistema e o usuário para validar a identidade.
               </p>
             </div>
 
             <div className="space-y-3 pt-4 border-t border-slate-800/80">
               <label className="block text-xs font-medium text-slate-300">
-                Sistema Alvo da Autenticação
+                Sistema
               </label>
               <select
                 value={selectedSlug}
@@ -321,7 +313,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
               <button
                 type="button"
                 onClick={() => {
-                  setMode('login');
                   setMfaPending(null);
                   setEmail('admin@vektor.iam');
                   setPassword('Vektor@2026!');
@@ -334,7 +325,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
               <button
                 type="button"
                 onClick={() => {
-                  setMode('login');
                   setMfaPending(null);
                   setEmail('clara.silva@vektor.iam');
                   setPassword('Clara@2026!');
@@ -352,41 +342,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         <div className="lg:col-span-7 bg-[#111827] border border-slate-800/90 rounded-lg p-8 flex flex-col justify-center">
           {!mfaPending ? (
             <>
-              <div className="flex items-center justify-between gap-4 pb-6 border-b border-slate-800/80">
-                <div>
-                  <h2 className="font-display text-xl font-semibold text-white">
-                    {mode === 'login' ? 'Entrar no Console IAM' : 'Criar Conta no Sistema'}
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Sistema selecionado: <span className="text-slate-200 font-medium">{currentSystem?.name || selectedSlug}</span>
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 p-1 bg-[#090D16] border border-slate-800 rounded-md shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('login');
-                      setError(null);
-                    }}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
-                      mode === 'login' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Entrar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('register');
-                      setError(null);
-                    }}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
-                      mode === 'register' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Registrar
-                  </button>
-                </div>
+              <div className="pb-6 border-b border-slate-800/80">
+                <h2 className="font-display text-xl font-semibold text-white">Entrar no Console IAM</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Sistema selecionado:{' '}
+                  <span className="text-slate-200 font-medium">{currentSystem?.name || selectedSlug}</span>
+                </p>
               </div>
 
               {error && (
@@ -397,19 +358,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
               )}
 
               <form onSubmit={handleSubmitCredentials} className="mt-6 space-y-4">
-                {mode === 'register' && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Nome completo</label>
-                    <input
-                      type="text"
-                      required
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="Ex.: Mariana Oliveira"
-                      className="w-full bg-[#090D16] border border-slate-700/80 rounded-md px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#F6821F]"
-                    />
-                  </div>
-                )}
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">E-mail corporativo</label>
@@ -440,7 +388,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-2 bg-[#F6821F] hover:bg-[#e27316] disabled:opacity-50 text-slate-950 font-semibold text-sm py-2.5 px-4 rounded-md transition-colors whitespace-nowrap"
                 >
-                  <span>{loading ? 'Autenticando...' : mode === 'login' ? 'Autenticar e Emitir JWT' : 'Criar Conta e Emitir JWT'}</span>
+                  <span>{loading ? 'Autenticando...' : 'Autenticar e Emitir JWT'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>
@@ -667,7 +615,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       )}
 
       <footer className="max-w-6xl w-full mx-auto pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
-        <span>Smarties Gate</span>
+        <span>Smarties Secure Gate</span>
         <span>Arquitetura Edge SQLite & Cloudflare D1</span>
       </footer>
     </div>

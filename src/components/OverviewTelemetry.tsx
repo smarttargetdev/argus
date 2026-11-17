@@ -994,7 +994,7 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
       const slug = log.systemSlug || 'global';
       if (!map.has(slug)) {
         map.set(slug, {
-          systemName: slug === 'global' ? 'Smarties Gate Global' : slug,
+          systemName: slug === 'global' ? 'Smarties Secure Gate Global' : slug,
           systemSlug: slug,
           s2xx: 0,
           s4xx: 0,

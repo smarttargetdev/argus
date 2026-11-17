@@ -127,7 +127,7 @@ export default function App() {
               <Shield className="w-3.5 h-3.5" />
             </div>
             <span className="font-display text-sm font-semibold tracking-tight text-white whitespace-nowrap">
-              Smarties Gate
+              Smarties Secure Gate
             </span>
           </div>
 
@@ -223,7 +223,7 @@ export default function App() {
         {/* Top Bar (Clean Breadcrumb + Last GraphQL Edge Diagnostic + Session Countdown + Sign Out) */}
         <header className="h-14 px-6 border-b border-slate-800/80 bg-[#090D16] flex items-center justify-between gap-6 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 whitespace-nowrap truncate">
-            <span>Smarties Gate</span>
+            <span>Smarties Secure Gate</span>
             <span aria-hidden="true">/</span>
             <span className="font-mono text-slate-300">{session.system.slug}</span>
             <span aria-hidden="true">/</span>

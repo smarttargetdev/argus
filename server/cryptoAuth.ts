@@ -158,7 +158,7 @@ export async function generateTotpEnrollment(email: string): Promise<{
   qrSvg: string;
 }> {
   const totp = new OTPAuth.TOTP({
-    issuer: 'Smarties Gate',
+    issuer: 'Smarties Secure Gate',
     label: email,
     algorithm: 'SHA1',
     digits: 6,
@@ -182,7 +182,7 @@ export function verifyTotpToken(secretBase32: string, code: string): boolean {
   const cleanCode = code.replace(/\s+/g, '');
   if (!/^\d{6}$/.test(cleanCode)) return false;
   const totp = new OTPAuth.TOTP({
-    issuer: 'Smarties Gate',
+    issuer: 'Smarties Secure Gate',
     algorithm: 'SHA1',
     digits: 6,
     period: 30,

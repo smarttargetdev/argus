@@ -444,7 +444,7 @@ export function seedInitialData(): void {
 
   insertSystem.run(
     sysCoreId,
-    'Smarties Gate Core',
+    'Smarties Secure Gate Core',
     'vektor-core',
     'Painel principal de governanca IAM, emissao de tokens e gestao multi-sistema.',
     'cid_vektor_core_2026',
@@ -779,4 +779,4 @@ export function seedInitialData(): void {
 }
 
 seedInitialData();
-db.prepare("UPDATE systems SET name = 'Smarties Gate Core' WHERE id = 'sys-vektor-core' AND name = 'Vektor Core Console'").run();
+db.prepare("UPDATE systems SET name = 'Smarties Secure Gate Core' WHERE id = 'sys-vektor-core' AND name IN ('Vektor Core Console', 'Smarties Gate Core')").run();

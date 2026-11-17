@@ -192,7 +192,7 @@ export default {
 };
 `;
 
-const DEPLOY_README = `# Smarties Gate — Pacote Cloudflare Workers + D1 + KV
+const DEPLOY_README = `# Smarties Secure Gate — Pacote Cloudflare Workers + D1 + KV
 
 1. Crie o banco D1 na Cloudflare:
    npx wrangler d1 create smarties-gate-d1

@@ -1,4 +1,4 @@
-# Smarties Gate — Plataforma de Identidade, OAuth 2.0, RBAC e Governança na Borda
+# Smarties Secure Gate — Plataforma de Identidade, OAuth 2.0, RBAC e Governança na Borda
 
 Sistema completo de **Identity and Access Management (IAM)** construído com **React** + **Node.js**, otimizado para **alta taxa de leitura e baixa taxa de gravação** sobre **SQLite (WAL) / Cloudflare D1**, com API **GraphQL** centralizada, **cache distribuído na borda** sensível à expiração de tokens JWT e versões de permissão, **autenticação de dois fatores (TOTP + SMS)**, federação com **provedores externos (IdPs)** e conformidade **LGPD / GDPR**.
 
@@ -50,7 +50,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor U as Usuário / App Cliente
-    participant API as Backend Smarties Gate / Worker
+    participant API as Backend Smarties Secure Gate / Worker
     participant DB as SQLite / D1
     participant MFA as TOTP / SMS OTP
 
@@ -164,6 +164,14 @@ erDiagram
 
 ### v1.6.0 — Lista de Alertas Recentes em Tempo Real (SSE + Polling)
 - Adição da lista **Alertas Recentes** na aba **Visão Geral** monitorando em tempo real (via stream SSE `/api/telemetry/stream` combinado com polling GraphQL a cada 10 segundos) tentativas de acesso não autorizadas e falhas de 2FA, notificando o administrador instantaneamente e oferecendo inspeção detalhada em popup modal.
+
+### v1.7.0 — Bloqueio de Auto-Registro de Usuários no Login
+- Remoção do fluxo de cadastro público ("Registrar") da tela de login (`AuthGate`) e bloqueio da rota `POST /api/auth/register` (`403 Forbidden` com auditoria `AUTH_SELF_REGISTER_BLOCKED`), restringindo a criação de novas contas ao provisionamento administrativo via GraphQL.
+
+### v1.8.0 — Atualização da Marca para "Smarties Secure Gate" e Textos da Tela de Login
+- Atualização da identidade visual e nominal da plataforma para **Smarties Secure Gate** no console React, título HTML/OpenGraph, emissor TOTP/JWT, sistema core e pacote exportável Cloudflare Workers/D1.
+- Refinamento dos textos da tela de autenticação (`AuthGate`): subtítulo alterado para **"Gerenciamento de Controle de Acesso"**, instrução para **"Selecione o sistema e o usuário para validar a identidade."** e rótulo de seleção para **"Sistema"**.
+
 
 
 

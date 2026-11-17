@@ -316,110 +316,29 @@ async function startServer() {
     });
   });
 
-  // Self-Service User Registration
-  app.post('/api/auth/register', async (req, res) => {
+  // Public Self-Service User Registration Disabled (Admin provisioning only)
+  app.post('/api/auth/register', (req, res) => {
     const started = performance.now();
-    const { email, displayName, password, systemSlug } = (req.body || {}) as {
+    const { email, systemSlug } = (req.body || {}) as {
       email?: string;
-      displayName?: string;
-      password?: string;
       systemSlug?: string;
     };
 
-    if (!email || !displayName || !password) {
-      res.status(400).json({ error: 'Nome, e-mail e senha sao obrigatorios.' });
-      return;
-    }
-
-    const system = getSystemBySlugOrId(systemSlug);
-    if (!system) {
-      res.status(404).json({ error: 'Sistema nao encontrado.' });
-      return;
-    }
-    if (password.length < system.password_min_length) {
-      res.status(400).json({ error: `A senha deve ter no minimo ${system.password_min_length} caracteres para este sistema.` });
-      return;
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
-    if (existing) {
-      res.status(409).json({ error: 'E-mail ja cadastrado.' });
-      return;
-    }
-
-    const defaultRole = db
-      .prepare('SELECT id FROM roles WHERE system_id = ? ORDER BY is_default DESC, created_at ASC LIMIT 1')
-      .get(system.id) as { id: string } | undefined;
-    if (!defaultRole) {
-      res.status(400).json({ error: 'Sistema nao possui role padrao configurada.' });
-      return;
-    }
-
-    const userId = `usr-${crypto.randomBytes(4).toString('hex')}`;
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO users (
-        id, email, display_name, password_hash, phone_number, phone_verified,
-        mfa_preferred_method, totp_secret_enc, totp_enabled, backup_codes_hash,
-        status, perm_version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, NULL, 0, 'none', NULL, 0, NULL, 'active', 1, ?, ?)
-    `).run(userId, cleanEmail, displayName.trim(), hashPassword(password), now, now);
-
-    db.prepare('INSERT INTO user_system_bindings (id, user_id, system_id, role_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      `bnd-${crypto.randomBytes(4).toString('hex')}`,
-      userId,
-      system.id,
-      defaultRole.id,
-      now
-    );
-
-    db.prepare(`
-      INSERT INTO consent_records (id, user_id, system_id, policy_version, purposes_json, granted, ip_masked, updated_at)
-      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(
-      `cns-${crypto.randomBytes(4).toString('hex')}`,
-      userId,
-      system.id,
-      system.privacy_policy_version,
-      JSON.stringify(['authentication', 'security_audit']),
-      maskIp(req.ip),
-      now
-    );
-    dbStats.totalWrites += 3;
-
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow;
-    const issued = await issueSystemJwt({ user, system, amr: ['pwd'] });
-    createSessionAndAudit({ user, system, jti: issued.jti, expiresAt: issued.expiresAt, authMethod: 'pwd', req });
-
     recordStructuredAudit({
-      actorId: userId,
-      actorEmail: cleanEmail,
-      systemId: system.id,
-      systemSlug: system.slug,
-      action: 'AUTH_USER_REGISTERED',
+      actorId: 'anonymous',
+      actorEmail: email || 'unknown',
+      systemSlug: systemSlug || 'global',
+      action: 'AUTH_SELF_REGISTER_BLOCKED',
       resourceType: 'user',
-      resourceId: userId,
-      status: 'success',
+      resourceId: 'self-register',
+      status: 'denied',
       durationMs: performance.now() - started,
       ip: req.ip,
+      details: { reason: 'Public user registration is disabled on login' },
     });
 
-    res.status(201).json({
-      requiresMfa: false,
-      accessToken: issued.token,
-      tokenType: 'Bearer',
-      expiresIn: system.jwt_ttl_seconds,
-      expiresAt: issued.expiresAt,
-      system: { id: system.id, name: system.name, slug: system.slug, signingAlg: system.signing_alg },
-      user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.display_name,
-        roles: issued.resolved.roles,
-        permissions: issued.resolved.permissions,
-        claims: issued.resolved.customClaims,
-      },
+    res.status(403).json({
+      error: 'O registro de novos usuários no login não é permitido. Solicite a criação da conta ao administrador.',
     });
   });
 
@@ -1154,6 +1073,6 @@ async function startServer() {
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start Smarties Gate server:', err);
+  console.error('Failed to start Smarties Secure Gate server:', err);
   process.exit(1);
 });
