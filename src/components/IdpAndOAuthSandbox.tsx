@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Play, CheckCircle2, KeyRound, Save } from 'lucide-react';
+import { Globe, Play, CheckCircle2, KeyRound, Save, X, SlidersHorizontal } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
 import type { IamSystem, IdentityProvider } from '../types/iam';
 
@@ -46,7 +46,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
   const [sandboxClientId, setSandboxClientId] = useState('cid_vektor_core_2026');
   const [sandboxEmail, setSandboxEmail] = useState('admin@vektor.iam');
   const [sandboxPassword, setSandboxPassword] = useState('Vektor@2026!');
-  const [pkceVerifier, setPkceVerifier] = useState('vektor_pkce_verifier_secret_demo_99123');
+  const [pkceVerifier, setPkceVerifier] = useState('smarties_gate_pkce_verifier_demo_99123');
   const [authCode, setAuthCode] = useState('');
   const [sandboxMfaToken, setSandboxMfaToken] = useState('');
   const [sandboxMfaCode, setSandboxMfaCode] = useState('');
@@ -158,6 +158,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Código 2FA inválido.');
       setSandboxMfaToken('');
+      setSandboxMfaCode('');
       onNotify('Desafio 2FA concluído para o código OAuth! Prossiga para Etapa 2.');
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Erro 2FA Sandbox.');
@@ -198,11 +199,11 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
       <div>
         <h1 className="font-display text-xl font-semibold text-white">Provedores Externos (IdPs) e Sandbox OAuth 2.0</h1>
         <p className="text-xs text-slate-400 mt-1">
-          Configure provedores Google, GitHub, OIDC genérico e Microsoft Entra ID / SAML, e teste o fluxo Authorization Code + PKCE ao vivo.
+          Configure provedores Google, GitHub, OIDC genérico e Microsoft Entra ID / SAML em popups dedicados e teste o fluxo Authorization Code + PKCE ao vivo.
         </p>
       </div>
 
-      {/* Identity Providers Table */}
+      {/* Identity Providers Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {idps.map((idp) => (
           <div key={idp.id} className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-3">
@@ -212,109 +213,37 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
                 <div>
                   <div className="text-sm font-semibold text-white">{idp.name}</div>
                   <div className="text-[11px] font-mono text-slate-400">
-                    {idp.providerType} · {idp.enabled ? 'habilitado' : 'desativado'} · {idp.simulationMode ? 'sandbox simulado' : 'live OAuth'}
+                    {idp.providerType} · {idp.enabled ? 'habilitado' : 'desativado'} ·{' '}
+                    {idp.simulationMode ? 'sandbox simulado' : 'live OAuth'}
                   </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingIdp({ ...idp })}
-                className="px-2.5 py-1 text-xs bg-[#090D16] border border-slate-700 hover:border-slate-500 text-slate-200 rounded"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#090D16] border border-slate-700 hover:border-slate-500 text-slate-200 rounded transition-colors"
               >
-                Configurar
+                <SlidersHorizontal className="w-3 h-3" />
+                <span>Configurar</span>
               </button>
             </div>
             <div className="text-[11px] font-mono text-slate-400 space-y-1 pt-2 border-t border-slate-800/70 truncate">
               <div className="truncate">Issuer: {idp.issuerUrl}</div>
+              <div className="truncate">Client ID: {idp.clientId || 'não definido'}</div>
               <div className="truncate">Scopes: {idp.scopes}</div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Edit IdP Inline Drawer */}
-      {editingIdp && (
-        <form onSubmit={handleSaveIdp} className="bg-[#111827] border border-slate-700 rounded-lg p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-sm font-semibold text-white">Configurar Provedor: {editingIdp.name}</h3>
-            <button type="button" onClick={() => setEditingIdp(null)} className="text-xs text-slate-400 hover:text-white">
-              Cancelar
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-slate-300 mb-1">Issuer URL</label>
-              <input
-                type="text"
-                value={editingIdp.issuerUrl}
-                onChange={(e) => setEditingIdp({ ...editingIdp, issuerUrl: e.target.value })}
-                className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-300 mb-1">Client ID</label>
-              <input
-                type="text"
-                value={editingIdp.clientId}
-                onChange={(e) => setEditingIdp({ ...editingIdp, clientId: e.target.value })}
-                className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-300 mb-1">Authorization URL</label>
-              <input
-                type="text"
-                value={editingIdp.authUrl}
-                onChange={(e) => setEditingIdp({ ...editingIdp, authUrl: e.target.value })}
-                className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-300 mb-1">Scopes</label>
-              <input
-                type="text"
-                value={editingIdp.scopes}
-                onChange={(e) => setEditingIdp({ ...editingIdp, scopes: e.target.value })}
-                className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white"
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-            <div className="flex items-center gap-5 text-xs text-slate-300">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingIdp.enabled}
-                  onChange={(e) => setEditingIdp({ ...editingIdp, enabled: e.target.checked })}
-                />
-                <span>Habilitado</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingIdp.simulationMode}
-                  onChange={(e) => setEditingIdp({ ...editingIdp, simulationMode: e.target.checked })}
-                />
-                <span>Modo Simulação Interativa</span>
-              </label>
-            </div>
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Salvar IdP via GraphQL</span>
-            </button>
-          </div>
-        </form>
-      )}
-
       {/* Live OAuth 2.0 + PKCE Sandbox */}
       <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-5">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-[#F6821F]" />
-            <h2 className="text-sm font-semibold text-white">Sandbox Interativo OAuth 2.0 (Authorization Code + PKCE S256)</h2>
+            <h2 className="text-sm font-semibold text-white">
+              Sandbox Interativo OAuth 2.0 (Authorization Code + PKCE S256)
+            </h2>
           </div>
           <span className="text-xs font-mono text-slate-400">/.well-known/jwks.json</span>
         </div>
@@ -427,12 +356,144 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
               </div>
             ) : (
               <div className="bg-[#090D16] border border-slate-800 rounded p-8 text-center text-xs text-slate-500">
-                Execute as etapas 1 e 2 ao lado para gerar um código OAuth 2.0 com PKCE S256 e inspecionar o JWT validado pela chave pública JWKS.
+                Execute as etapas 1 e 2 ao lado para gerar um código OAuth 2.0 com PKCE S256 e inspecionar o JWT
+                validado pela chave pública JWKS.
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Configure IdP Modal Popup */}
+      {editingIdp && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div className="max-w-2xl w-full bg-[#111827] border border-slate-700 rounded-lg p-6 max-h-[90vh] overflow-y-auto space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-display text-base font-semibold text-white">
+                  Configurar Provedor Externo: {editingIdp.name}
+                </h3>
+                <p className="text-xs font-mono text-slate-400 mt-0.5">{editingIdp.providerType}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingIdp(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveIdp} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Nome de Exibição</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingIdp.name}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, name: e.target.value })}
+                    className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Client ID</label>
+                  <input
+                    type="text"
+                    value={editingIdp.clientId}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, clientId: e.target.value })}
+                    className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Issuer URL</label>
+                  <input
+                    type="text"
+                    value={editingIdp.issuerUrl}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, issuerUrl: e.target.value })}
+                    className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Authorization URL</label>
+                  <input
+                    type="text"
+                    value={editingIdp.authUrl}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, authUrl: e.target.value })}
+                    className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Token URL</label>
+                  <input
+                    type="text"
+                    value={editingIdp.tokenUrl}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, tokenUrl: e.target.value })}
+                    className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">UserInfo URL</label>
+                  <input
+                    type="text"
+                    value={editingIdp.userinfoUrl}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, userinfoUrl: e.target.value })}
+                    className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Scopes (OIDC / OAuth 2.0)</label>
+                <input
+                  type="text"
+                  value={editingIdp.scopes}
+                  onChange={(e) => setEditingIdp({ ...editingIdp, scopes: e.target.value })}
+                  className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-white"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-6 pt-2 border-t border-slate-800 text-xs text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingIdp.enabled}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, enabled: e.target.checked })}
+                    className="rounded border-slate-700 bg-[#090D16]"
+                  />
+                  <span>Provedor Habilitado</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingIdp.simulationMode}
+                    onChange={(e) => setEditingIdp({ ...editingIdp, simulationMode: e.target.checked })}
+                    className="rounded border-slate-700 bg-[#090D16]"
+                  />
+                  <span>Modo Simulação Interativa</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingIdp(null)}
+                  className="px-4 py-2 text-xs text-slate-300 border border-slate-700 rounded-md"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Salvar IdP via GraphQL</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

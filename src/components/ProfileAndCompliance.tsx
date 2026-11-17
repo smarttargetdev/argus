@@ -8,6 +8,9 @@ import {
   LogOut,
   FileCheck2,
   AlertTriangle,
+  Edit3,
+  X,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
 import type { ComplianceSummary, IamSystem, IamUser } from '../types/iam';
@@ -96,7 +99,14 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
   const [systems, setSystems] = useState<IamSystem[]>([]);
   const [compliance, setCompliance] = useState<ComplianceSummary | null>(null);
 
-  // Profile Form
+  // Modal Popups Visibility
+  const [editProfileModal, setEditProfileModal] = useState(false);
+  const [changePasswordModal, setChangePasswordModal] = useState(false);
+  const [totpModal, setTotpModal] = useState(false);
+  const [smsModal, setSmsModal] = useState(false);
+  const [mfaPrefModal, setMfaPrefModal] = useState(false);
+
+  // Profile & Password Form
   const [displayName, setDisplayName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -115,6 +125,9 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
   const [smsPhoneInput, setSmsPhoneInput] = useState('');
   const [smsSentPreview, setSmsSentPreview] = useState<string | null>(null);
   const [smsCodeInput, setSmsCodeInput] = useState('');
+
+  // MFA Preference
+  const [preferredMethodDraft, setPreferredMethodDraft] = useState('none');
 
   // Anonymize Confirmation
   const [confirmAnonModal, setConfirmAnonModal] = useState(false);
@@ -138,6 +151,7 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
         setDisplayName(data.me.displayName);
         setPhoneNumber(data.me.phoneNumber || '');
         setSmsPhoneInput(data.me.phoneNumber || '+55 11 99999-0000');
+        setPreferredMethodDraft(data.me.mfaPreferredMethod);
       }
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Erro ao carregar perfil.');
@@ -161,6 +175,7 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
         `,
         variables: { displayName, phoneNumber: phoneNumber || null },
       });
+      setEditProfileModal(false);
       onNotify('Dados do perfil atualizados via GraphQL.');
       await loadProfile();
     } catch (err) {
@@ -183,6 +198,7 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
       });
       setCurrentPassword('');
       setNewPassword('');
+      setChangePasswordModal(false);
       onNotify(data.changePassword.message);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Erro ao alterar senha.');
@@ -200,6 +216,8 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
       });
       setTotpSetup(data.setupTotp);
       setBackupCodes(null);
+      setTotpCode('');
+      setTotpModal(true);
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Erro ao iniciar TOTP.');
     }
@@ -281,6 +299,7 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
       });
       setSmsSentPreview(null);
       setSmsCodeInput('');
+      setSmsModal(false);
       onNotify('Verificação 2FA por SMS ativada com sucesso.');
       await loadProfile();
     } catch (err) {
@@ -302,15 +321,17 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
     }
   };
 
-  const handleSetPreferredMfa = async (method: string) => {
+  const handleSetPreferredMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       await gqlRequest({
         token,
         operationName: 'SetPrefMfa',
         query: `mutation SetPrefMfa($method: String!) { setPreferredMfaMethod(method: $method) { success message } }`,
-        variables: { method },
+        variables: { method: preferredMethodDraft },
       });
-      onNotify(`Método 2FA preferencial definido para ${method.toUpperCase()}.`);
+      setMfaPrefModal(false);
+      onNotify(`Método 2FA preferencial definido para ${preferredMethodDraft.toUpperCase()}.`);
       await loadProfile();
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Erro ao alterar preferência.');
@@ -396,127 +417,143 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
     <div className="space-y-6">
       {mode === 'profile' ? (
         <>
-          <div>
-            <h1 className="font-display text-xl font-semibold text-white">Perfil Centralizado e Autenticação 2FA</h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Gerencie suas credenciais, configure TOTP (QR Code + Backup Codes) ou SMS OTP, revise acessos por sistema e revogue sessões ativas.
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h1 className="font-display text-xl font-semibold text-white">Perfil do Usuário</h1>
+              <p className="text-xs text-slate-400 mt-1">
+                Visualize suas credenciais, vínculos multi-sistema e sessões ativas; use os popups de configuração para alterar dados, senha ou 2FA.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDisplayName(me.displayName);
+                  setPhoneNumber(me.phoneNumber || '');
+                  setEditProfileModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-[#111827] border border-slate-700 hover:border-slate-500 text-white rounded-md"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Editar Perfil</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setChangePasswordModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Alterar Senha</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Credentials & Password */}
+            {/* Left: Read-Only Identity Summary + System Bindings */}
             <div className="lg:col-span-5 space-y-5">
-              <form onSubmit={handleUpdateProfile} className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4">
-                <h2 className="text-sm font-semibold text-white">Identidade Centralizada</h2>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">E-mail</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={me.email}
-                    className="w-full bg-[#090D16] border border-slate-800 rounded px-3 py-2 text-xs font-mono text-slate-400"
-                  />
+              <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h2 className="text-sm font-semibold text-white">Identidade Centralizada</h2>
+                  <span className="text-[11px] font-mono text-slate-400">perm v{me.permVersion}</span>
                 </div>
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">Nome de exibição</label>
-                  <input
-                    type="text"
-                    required
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-sm text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">Telefone</label>
-                  <input
-                    type="text"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-sm font-mono text-white"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md"
-                >
-                  Salvar Perfil
-                </button>
-              </form>
+                <dl className="space-y-3 text-xs">
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="text-slate-400">Nome de exibição</dt>
+                    <dd className="font-medium text-white text-right">{me.displayName}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="text-slate-400">E-mail principal</dt>
+                    <dd className="font-mono text-slate-200 text-right">{me.email}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="text-slate-400">Telefone</dt>
+                    <dd className="font-mono text-slate-200 text-right">{me.phoneNumber || 'Não informado'}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="text-slate-400">Status</dt>
+                    <dd className="font-mono text-emerald-400 text-right">{me.status}</dd>
+                  </div>
+                </dl>
+              </div>
 
-              <form onSubmit={handleChangePassword} className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-3.5">
-                <div className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-[#F6821F]" />
-                  <h2 className="text-sm font-semibold text-white">Alterar Senha</h2>
+              <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-3">
+                <h2 className="text-sm font-semibold text-white">Sistemas Vinculados e Roles</h2>
+                <div className="space-y-2">
+                  {(me.bindings || []).map((b) => (
+                    <div
+                      key={b.id}
+                      className="px-3 py-2.5 bg-[#090D16] border border-slate-800 rounded text-xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-white">{b.systemName}</span>
+                        <span className="font-mono text-[#F6821F]">{b.roleName}</span>
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-400 truncate">
+                        {b.permissions.join(' · ') || 'sem permissões adicionais'}
+                      </div>
+                    </div>
+                  ))}
+                  {(!me.bindings || me.bindings.length === 0) && (
+                    <div className="text-xs text-slate-500 py-2">Nenhum sistema vinculado.</div>
+                  )}
                 </div>
-                <input
-                  type="password"
-                  required
-                  placeholder="Senha atual"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs text-white"
-                />
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  placeholder="Nova senha (mín. 8 caracteres)"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs text-white"
-                />
-                <button
-                  type="submit"
-                  className="w-full py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
-                >
-                  Atualizar Senha
-                </button>
-              </form>
+              </div>
             </div>
 
-            {/* 2FA Configuration (TOTP + SMS) */}
+            {/* Right: 2FA Status Summary + Active Sessions */}
             <div className="lg:col-span-7 space-y-5">
-              <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-5">
+              <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-[#F6821F]" />
-                    <h2 className="text-sm font-semibold text-white">Configuração de Dois Fatores (2FA)</h2>
+                    <h2 className="text-sm font-semibold text-white">Autenticação de Dois Fatores (2FA)</h2>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-400">Preferencial:</span>
-                    <select
-                      value={me.mfaPreferredMethod}
-                      onChange={(e) => void handleSetPreferredMfa(e.target.value)}
-                      className="bg-[#090D16] border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white"
-                    >
-                      <option value="none">Nenhum</option>
-                      {me.totpEnabled && <option value="totp">TOTP</option>}
-                      {me.phoneVerified && <option value="sms">SMS</option>}
-                    </select>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreferredMethodDraft(me.mfaPreferredMethod);
+                      setMfaPrefModal(true);
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#090D16] border border-slate-700 hover:border-slate-500 text-slate-200 rounded"
+                  >
+                    <SlidersHorizontal className="w-3 h-3" />
+                    <span>Preferencial: {me.mfaPreferredMethod.toUpperCase()}</span>
+                  </button>
                 </div>
 
-                {/* TOTP Section */}
-                <div className="p-4 rounded-md bg-[#090D16] border border-slate-800 space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2.5">
-                      <KeyRound className="w-4 h-4 text-slate-300" />
-                      <div>
-                        <div className="text-xs font-semibold text-white">App Autenticador (TOTP RFC 6238)</div>
-                        <div className="text-[11px] text-slate-400">
-                          Status: {me.totpEnabled ? 'Ativo · Google Authenticator / Authy' : 'Não configurado'}
-                        </div>
+                {/* TOTP Status Row */}
+                <div className="p-4 rounded-md bg-[#090D16] border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-2.5">
+                    <KeyRound className="w-4 h-4 text-slate-300" />
+                    <div>
+                      <div className="text-xs font-semibold text-white">App Autenticador (TOTP RFC 6238)</div>
+                      <div className="text-[11px] text-slate-400">
+                        Status: {me.totpEnabled ? 'Ativo · Google Authenticator / Authy' : 'Não configurado'}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
                     {me.totpEnabled ? (
-                      <button
-                        type="button"
-                        onClick={handleDisableTotp}
-                        className="px-3 py-1.5 text-xs border border-red-800/70 text-red-300 hover:bg-red-950/40 rounded"
-                      >
-                        Desativar TOTP
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleStartTotp}
+                          className="px-3 py-1.5 text-xs border border-slate-700 hover:border-slate-500 text-slate-200 rounded"
+                        >
+                          Reconfigurar QR
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDisableTotp}
+                          className="px-3 py-1.5 text-xs border border-red-800/70 text-red-300 hover:bg-red-950/40 rounded"
+                        >
+                          Desativar TOTP
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"
@@ -527,65 +564,32 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
                       </button>
                     )}
                   </div>
-
-                  {totpSetup && (
-                    <div className="pt-3 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
-                      <div
-                        className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded p-2 flex items-center justify-center"
-                        dangerouslySetInnerHTML={{ __html: totpSetup.qrSvg }}
-                      />
-                      <form onSubmit={handleVerifyEnableTotp} className="sm:col-span-8 space-y-3">
-                        <div className="text-[11px] font-mono text-slate-400 break-all">
-                          Chave manual Base32: <span className="text-slate-200">{totpSetup.secretBase32}</span>
-                        </div>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            required
-                            value={totpCode}
-                            onChange={(e) => setTotpCode(e.target.value)}
-                            placeholder="Código 6 dígitos"
-                            className="flex-1 bg-[#111827] border border-slate-700 rounded px-3 py-2 text-xs font-mono tabular-nums text-white"
-                          />
-                          <button
-                            type="submit"
-                            className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded"
-                          >
-                            Ativar
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  )}
-
-                  {backupCodes && (
-                    <div className="pt-3 border-t border-slate-800 space-y-2">
-                      <div className="text-xs font-semibold text-amber-400">
-                        Códigos de Backup Descartáveis (Guarde em local seguro):
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs text-slate-200">
-                        {backupCodes.map((c) => (
-                          <div key={c} className="px-2.5 py-1.5 bg-[#111827] border border-slate-700 rounded text-center">
-                            {c}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
-                {/* SMS OTP Section */}
-                <div className="p-4 rounded-md bg-[#090D16] border border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2.5">
-                      <Smartphone className="w-4 h-4 text-slate-300" />
-                      <div>
-                        <div className="text-xs font-semibold text-white">Verificação por SMS OTP</div>
-                        <div className="text-[11px] text-slate-400">
-                          Status: {me.phoneVerified ? `Verificado (${me.phoneNumber})` : 'Não verificado'}
-                        </div>
+                {/* SMS OTP Status Row */}
+                <div className="p-4 rounded-md bg-[#090D16] border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-2.5">
+                    <Smartphone className="w-4 h-4 text-slate-300" />
+                    <div>
+                      <div className="text-xs font-semibold text-white">Verificação por SMS OTP</div>
+                      <div className="text-[11px] text-slate-400">
+                        Status: {me.phoneVerified ? `Verificado (${me.phoneNumber})` : 'Não verificado'}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSmsPhoneInput(me.phoneNumber || '+55 11 99999-0000');
+                        setSmsSentPreview(null);
+                        setSmsCodeInput('');
+                        setSmsModal(true);
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded"
+                    >
+                      {me.phoneVerified ? 'Alterar Telefone SMS' : 'Configurar SMS'}
+                    </button>
                     {me.phoneVerified && (
                       <button
                         type="button"
@@ -596,54 +600,13 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
                       </button>
                     )}
                   </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <input
-                      type="text"
-                      value={smsPhoneInput}
-                      onChange={(e) => setSmsPhoneInput(e.target.value)}
-                      placeholder="+55 11 99999-0000"
-                      className="flex-1 min-w-[180px] bg-[#111827] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleRequestSmsOtp}
-                      className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-white rounded"
-                    >
-                      Enviar Código SMS
-                    </button>
-                  </div>
-
-                  {smsSentPreview && (
-                    <form onSubmit={handleVerifySms} className="pt-2 space-y-2">
-                      <div className="text-[11px] font-mono text-emerald-400">
-                        Preview Sandbox SMS OTP: {smsSentPreview}
-                      </div>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          required
-                          value={smsCodeInput}
-                          onChange={(e) => setSmsCodeInput(e.target.value)}
-                          placeholder="Digite os 6 dígitos"
-                          className="flex-1 bg-[#111827] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white"
-                        />
-                        <button
-                          type="submit"
-                          className="px-4 py-1.5 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded"
-                        >
-                          Confirmar SMS
-                        </button>
-                      </div>
-                    </form>
-                  )}
                 </div>
               </div>
 
               {/* Active Sessions */}
               <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-3">
                 <h2 className="text-sm font-semibold text-white">Sessões JWT Ativas e Histórico Recente</h2>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="space-y-2 max-h-64 overflow-y-auto">
                   {(me.sessions || []).map((ses) => (
                     <div
                       key={ses.id}
@@ -654,7 +617,8 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
                           {ses.systemName} · <span className="font-mono text-slate-400">{ses.authMethod}</span>
                         </div>
                         <div className="text-[11px] font-mono text-slate-500 truncate">
-                          IP {ses.ipMasked} · JTI {ses.jti.slice(0, 14)} · {ses.revokedAt ? 'Revogada' : `Expira ${new Date(ses.expiresAt).toLocaleTimeString('pt-BR')}`}
+                          IP {ses.ipMasked} · JTI {ses.jti.slice(0, 14)} ·{' '}
+                          {ses.revokedAt ? 'Revogada' : `Expira ${new Date(ses.expiresAt).toLocaleTimeString('pt-BR')}`}
                         </div>
                       </div>
                       {!ses.revokedAt && (
@@ -673,6 +637,339 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Modal: Edit Profile */}
+          {editProfileModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+              <div className="max-w-md w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="font-display text-base font-semibold text-white">Editar Perfil Centralizado</h3>
+                  <button
+                    type="button"
+                    onClick={() => setEditProfileModal(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">E-mail</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={me.email}
+                      className="w-full bg-[#090D16] border border-slate-800 rounded px-3 py-2 text-xs font-mono text-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">Nome de exibição</label>
+                    <input
+                      type="text"
+                      required
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">Telefone</label>
+                    <input
+                      type="text"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="+55 11 99999-0000"
+                      className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-sm font-mono text-white"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditProfileModal(false)}
+                      className="px-4 py-2 text-xs text-slate-300 border border-slate-700 rounded-md"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
+                    >
+                      Salvar Perfil
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Change Password */}
+          {changePasswordModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+              <div className="max-w-md w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-[#F6821F]" />
+                    <h3 className="font-display text-base font-semibold text-white">Alterar Senha</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setChangePasswordModal(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">Senha atual</label>
+                    <input
+                      type="password"
+                      required
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">Nova senha (mín. 8 caracteres)</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs text-white"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setChangePasswordModal(false)}
+                      className="px-4 py-2 text-xs text-slate-300 border border-slate-700 rounded-md"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
+                    >
+                      Atualizar Senha
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: TOTP QR Code & Backup Codes */}
+          {totpModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+              <div className="max-w-lg w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-[#F6821F]" />
+                    <h3 className="font-display text-base font-semibold text-white">
+                      Configurar App Autenticador (TOTP RFC 6238)
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTotpModal(false);
+                      setTotpSetup(null);
+                      setBackupCodes(null);
+                    }}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {totpSetup && !backupCodes && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                      <div
+                        className="sm:col-span-5 bg-slate-900 border border-slate-700 rounded p-2 flex items-center justify-center"
+                        dangerouslySetInnerHTML={{ __html: totpSetup.qrSvg }}
+                      />
+                      <div className="sm:col-span-7 space-y-2 text-xs">
+                        <p className="text-slate-300 leading-relaxed">
+                          Escaneie o QR Code no Google Authenticator, Authy ou 1Password e informe o código de 6 dígitos gerado.
+                        </p>
+                        <div className="text-[11px] font-mono text-slate-400 break-all bg-[#090D16] p-2 rounded border border-slate-800">
+                          Chave Base32: <span className="text-slate-200">{totpSetup.secretBase32}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleVerifyEnableTotp} className="space-y-3 pt-2 border-t border-slate-800">
+                      <label className="block text-xs text-slate-300">Código TOTP de confirmação</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          required
+                          value={totpCode}
+                          onChange={(e) => setTotpCode(e.target.value)}
+                          placeholder="000000"
+                          className="flex-1 bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-sm font-mono tabular-nums text-white"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
+                        >
+                          Validar e Ativar
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {backupCodes && (
+                  <div className="space-y-4">
+                    <div className="text-xs font-semibold text-amber-400">
+                      TOTP ativado com sucesso. Guarde seus 8 códigos de backup descartáveis em local seguro:
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs text-slate-200">
+                      {backupCodes.map((c) => (
+                        <div key={c} className="px-2.5 py-2 bg-[#090D16] border border-slate-700 rounded text-center">
+                          {c}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTotpModal(false);
+                          setBackupCodes(null);
+                        }}
+                        className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
+                      >
+                        Concluir
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Modal: SMS OTP Setup */}
+          {smsModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+              <div className="max-w-md w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-[#F6821F]" />
+                    <h3 className="font-display text-base font-semibold text-white">Configurar Verificação por SMS OTP</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSmsModal(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">Número de Telefone (E.164)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={smsPhoneInput}
+                        onChange={(e) => setSmsPhoneInput(e.target.value)}
+                        placeholder="+55 11 99999-0000"
+                        className="flex-1 bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs font-mono text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRequestSmsOtp}
+                        className="px-3 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-white rounded"
+                      >
+                        Enviar SMS
+                      </button>
+                    </div>
+                  </div>
+
+                  {smsSentPreview && (
+                    <form onSubmit={handleVerifySms} className="space-y-3 pt-3 border-t border-slate-800">
+                      <div className="text-[11px] font-mono text-emerald-400 bg-[#090D16] p-2.5 rounded border border-slate-800">
+                        Preview Sandbox SMS OTP: {smsSentPreview}
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-300 mb-1">Código de 6 dígitos recebido</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            required
+                            value={smsCodeInput}
+                            onChange={(e) => setSmsCodeInput(e.target.value)}
+                            placeholder="000000"
+                            className="flex-1 bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs font-mono text-white"
+                          />
+                          <button
+                            type="submit"
+                            className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded"
+                          >
+                            Confirmar SMS
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Preferred 2FA Method */}
+          {mfaPrefModal && (
+            <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+              <div className="max-w-sm w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="font-display text-base font-semibold text-white">Método 2FA Preferencial</h3>
+                  <button
+                    type="button"
+                    onClick={() => setMfaPrefModal(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <form onSubmit={handleSetPreferredMfa} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-300 mb-1">Método padrão no login</label>
+                    <select
+                      value={preferredMethodDraft}
+                      onChange={(e) => setPreferredMethodDraft(e.target.value)}
+                      className="w-full bg-[#090D16] border border-slate-700 rounded px-3 py-2 text-xs font-mono text-white"
+                    >
+                      <option value="none">Nenhum</option>
+                      {me.totpEnabled && <option value="totp">TOTP (App Autenticador)</option>}
+                      {me.phoneVerified && <option value="sms">SMS OTP</option>}
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setMfaPrefModal(false)}
+                      className="px-4 py-2 text-xs text-slate-300 border border-slate-700 rounded-md"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
+                    >
+                      Salvar Preferência
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         /* LGPD & GDPR Compliance Center */

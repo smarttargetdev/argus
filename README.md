@@ -140,3 +140,32 @@ erDiagram
 
 ### v1.1.0 — Consolidação da Identidade Oficial "Smarties Gate" e Alinhamento dos Artefatos
 - Padronização oficial da marca **Smarties Gate** na interface React, título HTML, emissor TOTP/JWT, pacote exportável Cloudflare Workers/D1 e documentação principal (`README.md` e plano de implementação com diagramas Mermaid compatíveis com Obsidian).
+
+### v1.2.0 — Telas de Configuração 100% em Popups Modais
+- Conversão de todas as telas de configuração anteriormente renderizadas inline para modais popup dedicados (`fixed inset-0 z-50`), mantendo as visões principais focadas em inspeção e leitura:
+  - **Provedores Externos (IdPs)**: formulário de edição de provedor (Google, GitHub, OIDC genérico, Entra ID/SAML) exibido em popup modal.
+  - **RBAC, Permissões e Claims**: criação de roles, criação de permissões atômicas e editor de permissões + claims personalizadas convertidos em modais popup, deixando a tela principal em modo catálogo + pré-visualização ao vivo do payload JWT.
+  - **Perfil Centralizado & 2FA**: edição de perfil, alteração de senha, configuração de App Autenticador TOTP (QR Code + códigos de backup), configuração de SMS OTP e método 2FA preferencial migrados para modais popup.
+  - **Sistemas OAuth 2.0**: exibição única de `client_secret` rotacionado exibida em modal popup dedicado.
+
+### v1.3.0 — AuditLogManager, Estatísticas-Chave e Alerta de Expiração de Sessão
+- Criação do componente **`AuditLogManager`** na aba de Visão Geral com tabela pesquisável e filtrável por sistema, status (`success`, `denied`, `error`) e categoria de ação via GraphQL + stream SSE, com inspeção detalhada do evento em popup modal (padrão *master/details* em popup).
+- Adição do widget **Estatísticas-Chave (Key Statistics)** no topo de `OverviewTelemetry` exibindo contagens ao vivo de **Usuários Ativos**, **Tokens JWT Válidos** e **Alertas de Segurança Recentes** via consultas GraphQL existentes.
+- Implementação do hook **`useSessionExpiration`** que calcula o tempo restante do token JWT e exibe um modal discreto e não intrusivo 5 minutos antes da expiração da sessão.
+- Padronização do rótulo **"Criar Sistema"** no gerenciador de sistemas.
+
+### v1.4.0 — Gráfico D3 de Tendência (24h) e Rótulos Concisos de Navegação
+- Adição de gráfico de linha interativo com **D3.js** (`d3.scaleTime`, `d3.scaleLinear`, `d3.line`, `d3.area` e tooltip tabular) no `OverviewTelemetry` exibindo a tendência horária de usuários ativos, sessões ativas e eventos nas últimas 24 horas com diagnósticos GraphQL (`CF-Cache-Status`, duração e leituras SQLite).
+- Simplificação dos itens do menu lateral para **Visão Geral**, **Sistemas**, **Usuários**, **Permissões**, **Provedores**, **Infraestrutura**, **Conformidade** e **Perfil**.
+
+### v1.5.0 — Distribuição de Códigos HTTP (2xx, 4xx, 5xx) com Recharts e Títulos Refinados
+- Adição do widget **Códigos HTTP por Sistema (Últimas 24h)** em `OverviewTelemetry` utilizando **Recharts** (`ResponsiveContainer`, `BarChart` empilhado) para visualizar respostas `2xx`, `4xx` e `5xx` entre todos os sistemas monitorados.
+- Refinamento dos títulos das seções e rótulos de ação (**Salvar**, **Atualizar**, **Aplicar**).
+
+### v1.6.0 — Lista de Alertas Recentes em Tempo Real (SSE + Polling)
+- Adição da lista **Alertas Recentes** na aba **Visão Geral** monitorando em tempo real (via stream SSE `/api/telemetry/stream` combinado com polling GraphQL a cada 10 segundos) tentativas de acesso não autorizadas e falhas de 2FA, notificando o administrador instantaneamente e oferecendo inspeção detalhada em popup modal.
+
+
+
+
+

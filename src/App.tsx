@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
   AppWindow,
@@ -10,6 +10,8 @@ import {
   UserCircle2,
   LogOut,
   CheckCircle2,
+  Clock,
+  X,
 } from 'lucide-react';
 import { AuthGate } from './components/AuthGate';
 import { OverviewTelemetry } from './components/OverviewTelemetry';
@@ -20,6 +22,7 @@ import { IdpAndOAuthSandbox } from './components/IdpAndOAuthSandbox';
 import { GraphqlAndCloudflare } from './components/GraphqlAndCloudflare';
 import { ProfileAndCompliance } from './components/ProfileAndCompliance';
 import { subscribeDiagnostics } from './lib/graphqlClient';
+import { useSessionExpiration } from './hooks/useSessionExpiration';
 import type { AuthSessionState, DiagnosticHeaders } from './types/iam';
 
 type NavTab =
@@ -34,15 +37,20 @@ type NavTab =
 
 const SESSION_STORAGE_KEY = 'vektor_iam_session_v1';
 
-const NAV_ITEMS: Array<{ id: NavTab; label: string; group: 'admin' | 'infra' | 'self'; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'overview', label: 'Visão Geral & Borda', group: 'admin', icon: Activity },
-  { id: 'systems', label: 'Sistemas OAuth 2.0', group: 'admin', icon: AppWindow },
-  { id: 'users', label: 'Usuários & Vínculos', group: 'admin', icon: Users },
-  { id: 'rbac', label: 'RBAC & Claims JWT', group: 'admin', icon: Shield },
-  { id: 'idps', label: 'Provedores & OAuth Lab', group: 'infra', icon: Globe },
-  { id: 'graphql', label: 'GraphQL & Cloudflare D1', group: 'infra', icon: Code2 },
-  { id: 'compliance', label: 'Conformidade LGPD/GDPR', group: 'self', icon: FileCheck2 },
-  { id: 'profile', label: 'Meu Perfil & 2FA', group: 'self', icon: UserCircle2 },
+const NAV_ITEMS: Array<{
+  id: NavTab;
+  label: string;
+  group: 'admin' | 'infra' | 'self';
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'overview', label: 'Visão Geral', group: 'admin', icon: Activity },
+  { id: 'systems', label: 'Sistemas', group: 'admin', icon: AppWindow },
+  { id: 'users', label: 'Usuários', group: 'admin', icon: Users },
+  { id: 'rbac', label: 'Permissões', group: 'admin', icon: Shield },
+  { id: 'idps', label: 'Provedores', group: 'infra', icon: Globe },
+  { id: 'graphql', label: 'Infraestrutura', group: 'infra', icon: Code2 },
+  { id: 'compliance', label: 'Conformidade', group: 'self', icon: FileCheck2 },
+  { id: 'profile', label: 'Perfil', group: 'self', icon: UserCircle2 },
 ];
 
 export default function App() {
@@ -72,6 +80,16 @@ export default function App() {
     });
   }, []);
 
+  const handleLogout = useCallback(() => {
+    setSession(null);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  }, []);
+
+  const { formattedRemaining, isExpiringSoon, showWarning, dismissWarning } = useSessionExpiration(
+    session?.expiresAt ?? null,
+    handleLogout
+  );
+
   const notify = (msg: string) => {
     if (msg === 'UNAUTHENTICATED') {
       handleLogout();
@@ -91,11 +109,6 @@ export default function App() {
       nextSession.user.permissions.includes('iam:users:read') ||
       nextSession.user.permissions.includes('iam:audit:read');
     setActiveTab(hasAdmin ? 'overview' : 'profile');
-  };
-
-  const handleLogout = () => {
-    setSession(null);
-    localStorage.removeItem(SESSION_STORAGE_KEY);
   };
 
   if (!session) {
@@ -207,7 +220,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top Bar (Clean Breadcrumb + Last GraphQL Edge Diagnostic + Sign Out) */}
+        {/* Top Bar (Clean Breadcrumb + Last GraphQL Edge Diagnostic + Session Countdown + Sign Out) */}
         <header className="h-14 px-6 border-b border-slate-800/80 bg-[#090D16] flex items-center justify-between gap-6 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 whitespace-nowrap truncate">
             <span>Smarties Gate</span>
@@ -229,6 +242,15 @@ export default function App() {
                 <span>SQL:{lastDiag.sqliteQueriesCount}</span>
               </div>
             )}
+            <div
+              className={`hidden md:flex items-center gap-1.5 text-[11px] font-mono tabular-nums ${
+                isExpiringSoon ? 'text-amber-400' : 'text-slate-400'
+              }`}
+              title="Tempo restante do token JWT da sessão"
+            >
+              <Clock className="w-3 h-3" />
+              <span>{formattedRemaining}</span>
+            </div>
             <button
               type="button"
               onClick={handleLogout}
@@ -287,6 +309,52 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Subtle Non-Intrusive Session Expiration Modal Warning (5 min before expiry) */}
+      {showWarning && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-label="Aviso de expiração de sessão"
+          className="fixed bottom-5 right-5 z-50 max-w-sm w-[calc(100vw-2.5rem)] bg-[#111827]/95 backdrop-blur border border-amber-500/50 rounded-lg p-4 shadow-2xl space-y-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2 text-amber-400">
+              <Clock className="w-4 h-4 shrink-0" />
+              <h3 className="font-display text-xs font-semibold text-white">Sessão prestes a expirar</h3>
+            </div>
+            <button
+              type="button"
+              onClick={dismissWarning}
+              aria-label="Fechar aviso"
+              className="text-slate-400 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Seu token JWT expirará em{' '}
+            <span className="font-mono tabular-nums font-semibold text-amber-300">{formattedRemaining}</span>.
+            Salve alterações pendentes ou reautentique para renovar sua sessão.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={dismissWarning}
+              className="px-3 py-1.5 text-xs text-slate-300 hover:text-white border border-slate-700 rounded-md"
+            >
+              Continuar
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-3 py-1.5 text-xs font-semibold bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md"
+            >
+              Reautenticar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

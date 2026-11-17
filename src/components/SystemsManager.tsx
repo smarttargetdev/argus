@@ -212,7 +212,7 @@ export const SystemsManager: React.FC<SystemsManagerProps> = ({ token, onNotify,
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-xl font-semibold text-white">Sistemas e Políticas OAuth 2.0</h1>
+          <h1 className="font-display text-xl font-semibold text-white">Sistemas OAuth 2.0</h1>
           <p className="text-xs text-slate-400 mt-1">
             Gerenciamento via GraphQL de aplicações clientes, TTL de JWT, 2FA obrigatório e cache distribuído por sistema.
           </p>
@@ -223,27 +223,11 @@ export const SystemsManager: React.FC<SystemsManagerProps> = ({ token, onNotify,
           className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md transition-colors whitespace-nowrap"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>Novo Sistema OAuth 2.0</span>
+          <span>Criar Sistema</span>
         </button>
       </div>
 
-      {rotatedSecret && (
-        <div className="bg-[#111827] border border-amber-600/60 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="text-xs font-semibold text-amber-400">Novo Client Secret Gerado (Exibição Única)</div>
-            <div className="text-xs font-mono text-slate-200">
-              client_id: {rotatedSecret.clientId} · client_secret: {rotatedSecret.newClientSecret}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRotatedSecret(null)}
-            className="text-xs text-slate-400 hover:text-white underline"
-          >
-            Ocultar
-          </button>
-        </div>
-      )}
+      {/* Systems Table */}
 
       <div className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
@@ -333,7 +317,7 @@ export const SystemsManager: React.FC<SystemsManagerProps> = ({ token, onNotify,
           <div className="max-w-2xl w-full bg-[#111827] border border-slate-700 rounded-lg p-6 max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="font-display text-base font-semibold text-white">
-                {editing ? `Editar Sistema: ${editing.name}` : 'Criar Novo Sistema OAuth 2.0'}
+                {editing ? `Editar Sistema: ${editing.name}` : 'Criar Sistema'}
               </h3>
               <button
                 type="button"
@@ -499,10 +483,53 @@ export const SystemsManager: React.FC<SystemsManagerProps> = ({ token, onNotify,
                   type="submit"
                   className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
                 >
-                  {editing ? 'Salvar Alterações via GraphQL' : 'Criar Sistema via GraphQL'}
+                  {editing ? 'Salvar' : 'Criar Sistema via GraphQL'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rotated Client Secret Modal */}
+      {rotatedSecret && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div className="max-w-lg w-full bg-[#111827] border border-amber-600/60 rounded-lg p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-amber-400" />
+                <h3 className="font-display text-base font-semibold text-white">
+                  Novo Client Secret Gerado (Exibição Única)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRotatedSecret(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Armazene este segredo em local seguro agora. Por segurança, o hash é salvo no banco e o valor completo não poderá ser exibido novamente.
+            </p>
+            <div className="bg-[#090D16] border border-slate-800 rounded-md p-3.5 space-y-2 text-xs font-mono">
+              <div className="text-slate-400">
+                client_id: <span className="text-white">{rotatedSecret.clientId}</span>
+              </div>
+              <div className="text-slate-400 break-all">
+                client_secret: <span className="text-amber-300">{rotatedSecret.newClientSecret}</span>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setRotatedSecret(null)}
+                className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
+              >
+                Entendi e Copiei
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -237,7 +237,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-xl font-semibold text-white">Usuários e Vínculos Multi-Sistema</h1>
+          <h1 className="font-display text-xl font-semibold text-white">Contas de Usuário</h1>
           <p className="text-xs text-slate-400 mt-1">
             CRUD completo via GraphQL com resolução em lote DataLoader (zero N+1) e versionamento instantâneo de permissões.
           </p>
@@ -509,7 +509,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
                   Cancelar
                 </button>
                 <button type="submit" className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md">
-                  {editing ? 'Atualizar via GraphQL' : 'Criar via GraphQL'}
+                  {editing ? 'Atualizar' : 'Criar via GraphQL'}
                 </button>
               </div>
             </form>
@@ -588,7 +588,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
               </div>
               <div className="flex justify-end">
                 <button type="submit" className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md">
-                  Aplicar Vínculo via GraphQL
+                  Aplicar
                 </button>
               </div>
             </form>
