@@ -46,7 +46,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
   const [sandboxClientId, setSandboxClientId] = useState('cid_vektor_core_2026');
   const [sandboxEmail, setSandboxEmail] = useState('admin@vektor.iam');
   const [sandboxPassword, setSandboxPassword] = useState('Vektor@2026!');
-  const [pkceVerifier, setPkceVerifier] = useState('smarties_gate_pkce_verifier_demo_99123');
+  const [pkceVerifier, setPkceVerifier] = useState('smarties_secure_gate_pkce_verifier_demo_99123');
   const [authCode, setAuthCode] = useState('');
   const [sandboxMfaToken, setSandboxMfaToken] = useState('');
   const [sandboxMfaCode, setSandboxMfaCode] = useState('');
@@ -197,7 +197,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-xl font-semibold text-white">Provedores Externos (IdPs) e Sandbox OAuth 2.0</h1>
+        <h1 className="font-display text-xl font-semibold text-white">Provedores de Identidade</h1>
         <p className="text-xs text-slate-400 mt-1">
           Configure provedores Google, GitHub, OIDC genérico e Microsoft Entra ID / SAML em popups dedicados e teste o fluxo Authorization Code + PKCE ao vivo.
         </p>
@@ -214,7 +214,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
                   <div className="text-sm font-semibold text-white">{idp.name}</div>
                   <div className="text-[11px] font-mono text-slate-400">
                     {idp.providerType} · {idp.enabled ? 'habilitado' : 'desativado'} ·{' '}
-                    {idp.simulationMode ? 'sandbox simulado' : 'live OAuth'}
+                    {idp.simulationMode ? 'sandbox simulado' : 'OAuth em produção'}
                   </div>
                 </div>
               </div>
@@ -228,9 +228,9 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
               </button>
             </div>
             <div className="text-[11px] font-mono text-slate-400 space-y-1 pt-2 border-t border-slate-800/70 truncate">
-              <div className="truncate">Issuer: {idp.issuerUrl}</div>
+              <div className="truncate">Emissor: {idp.issuerUrl}</div>
               <div className="truncate">Client ID: {idp.clientId || 'não definido'}</div>
-              <div className="truncate">Scopes: {idp.scopes}</div>
+              <div className="truncate">Escopos: {idp.scopes}</div>
             </div>
           </div>
         ))}
@@ -487,7 +487,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
                   className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Salvar IdP via GraphQL</span>
+                  <span>Salvar</span>
                 </button>
               </div>
             </form>

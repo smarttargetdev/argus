@@ -28,7 +28,7 @@ import {
   CheckCheck,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
-import { AuditLogManager } from './AuditLogManager';
+import { AuditLogs } from './AuditLogs';
 import type {
   AuditLog,
   ComplianceSummary,
@@ -341,7 +341,7 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
           <div>
             <h2 className="text-sm font-semibold text-white">Tendência de Usuários Ativos (Últimas 24h)</h2>
             <p className="text-[11px] text-slate-400">
-              Visualização D3 das sessões ativas e acessos registrados pelos resolvedores GraphQL nas últimas 24 horas.
+              Sessões ativas e acessos registrados pelos resolvedores GraphQL nas últimas 24 horas.
             </p>
           </div>
         </div>
@@ -419,7 +419,7 @@ const HttpStatusDistributionWidget: React.FC<HttpStatusWidgetProps> = ({ data })
           <div>
             <h2 className="text-sm font-semibold text-white">Códigos HTTP por Sistema (Últimas 24h)</h2>
             <p className="text-[11px] text-slate-400">
-              Distribuição Recharts de respostas 2xx, 4xx e 5xx entre todos os sistemas monitorados.
+              Distribuição de respostas 2xx, 4xx e 5xx entre todos os sistemas monitorados.
             </p>
           </div>
         </div>
@@ -1038,7 +1038,7 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         <div>
           <h1 className="font-display text-xl font-semibold text-white">Visão Geral</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Estatísticas-chave, tendência de usuários ativos em 24h (D3), métricas GraphQL e auditoria de acesso em tempo real.
+            Estatísticas-chave, tendência de usuários ativos em 24h, métricas na borda e auditoria de acesso em tempo real.
           </p>
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
@@ -1062,15 +1062,15 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
       </div>
 
       {/* Key Statistics Widget */}
-      <section aria-label="Key Statistics" className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4">
+      <section aria-label="Estatísticas-Chave" className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
           <div>
-            <h2 className="text-sm font-semibold text-white">Estatísticas-Chave (Key Statistics)</h2>
+            <h2 className="text-sm font-semibold text-white">Estatísticas-Chave</h2>
             <p className="text-[11px] text-slate-400">
               Contagem ao vivo obtida via GraphQL (DataLoader em lote) e stream de auditoria.
             </p>
           </div>
-          <span className="text-[11px] font-mono text-slate-400">GraphQL · Live Snapshot</span>
+          <span className="text-[11px] font-mono text-slate-400">Atualização ao vivo</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1180,7 +1180,7 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
 
         <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>KV Versions & Audit Batch</span>
+            <span>Versões KV e Lotes de Auditoria</span>
             <Radio className="w-3.5 h-3.5 text-slate-400" />
           </div>
           <div className="font-mono tabular-nums text-2xl font-semibold text-white">
@@ -1202,8 +1202,8 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         onMarkAllRead={() => setUnreadAlertIds(new Set())}
       />
 
-      {/* Searchable & Filterable Audit Log Manager */}
-      <AuditLogManager
+      {/* Searchable & Filterable Audit Logs */}
+      <AuditLogs
         token={token}
         onNotify={onNotify}
         refreshSignal={refreshTick}

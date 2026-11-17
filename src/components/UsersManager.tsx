@@ -284,7 +284,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
                 <th className="py-3 px-4 font-medium">Sistemas e Roles</th>
                 <th className="py-3 px-4 font-medium">2FA</th>
                 <th className="py-3 px-4 font-medium">Status</th>
-                <th className="py-3 px-4 font-medium text-right">Perm Ver.</th>
+                <th className="py-3 px-4 font-medium text-right">Ver. Perm.</th>
                 <th className="py-3 px-4 font-medium text-right">Ações</th>
               </tr>
             </thead>
@@ -334,7 +334,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
                               : 'text-slate-400'
                         }
                       >
-                        {u.status}
+                        {u.status === 'active' ? 'Ativo' : u.status === 'locked' ? 'Bloqueado' : u.status}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-400">
@@ -368,7 +368,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
                           <button
                             type="button"
                             onClick={() => handleDeleteUser(u)}
-                            title="Deletar Usuário"
+                            title="Remover Usuário"
                             className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-red-400 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -390,7 +390,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
           <div className="max-w-lg w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="font-display text-base font-semibold text-white">
-                {editing ? `Editar Usuário: ${editing.displayName}` : 'Criar Novo Usuário'}
+                {editing ? `Editar Usuário: ${editing.displayName}` : 'Novo Usuário'}
               </h3>
               <button
                 type="button"
@@ -509,7 +509,7 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
                   Cancelar
                 </button>
                 <button type="submit" className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md">
-                  {editing ? 'Atualizar' : 'Criar via GraphQL'}
+                  {editing ? 'Atualizar' : 'Criar Usuário'}
                 </button>
               </div>
             </form>

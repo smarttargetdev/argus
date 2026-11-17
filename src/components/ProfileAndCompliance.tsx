@@ -383,7 +383,7 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `smarties-gate-portabilidade-lgpd-${me?.id || 'titular'}.json`;
+      a.download = `smarties-secure-gate-portabilidade-lgpd-${me?.id || 'titular'}.json`;
       a.click();
       URL.revokeObjectURL(url);
       onNotify('Pacote JSON de portabilidade LGPD/GDPR exportado.');
@@ -475,7 +475,9 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <dt className="text-slate-400">Status</dt>
-                    <dd className="font-mono text-emerald-400 text-right">{me.status}</dd>
+                    <dd className="font-mono text-emerald-400 text-right">
+                      {me.status === 'active' ? 'Ativo' : me.status === 'locked' ? 'Bloqueado' : me.status}
+                    </dd>
                   </div>
                 </dl>
               </div>

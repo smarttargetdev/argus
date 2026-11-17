@@ -49,7 +49,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
   const [idpModal, setIdpModal] = useState<{ providerType: string; name: string } | null>(null);
   const [idpEmail, setIdpEmail] = useState('admin@vektor.iam');
-  const [idpName, setIdpName] = useState('Usuario Federado');
+  const [idpName, setIdpName] = useState('Usuário Federado');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +88,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Falha na autenticacao.');
+        throw new Error(data.error || 'Falha na autenticação.');
       }
 
       if (data.requiresMfa) {
@@ -154,7 +154,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Codigo 2FA invalido.');
+      if (!res.ok) throw new Error(data.error || 'Código 2FA inválido.');
 
       onAuthenticated({
         token: data.accessToken,
@@ -163,7 +163,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         user: data.user,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro na verificacao 2FA.');
+      setError(err instanceof Error ? err.message : 'Erro na verificação 2FA.');
     } finally {
       setLoading(false);
     }
@@ -203,7 +203,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Falha na federacao externa.');
+      if (!res.ok) throw new Error(data.error || 'Falha na federação externa.');
       setIdpModal(null);
 
       if (data.requiresMfa) {
@@ -224,7 +224,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         user: data.user,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro na federacao IdP.');
+      setError(err instanceof Error ? err.message : 'Erro na federação IdP.');
     } finally {
       setLoading(false);
     }
@@ -412,7 +412,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                           <span className="truncate">{idp.name}</span>
                         </span>
                         <span className="text-[11px] text-slate-500 shrink-0">
-                          {idp.simulation_mode ? 'Simulado' : 'Live'}
+                          {idp.simulation_mode ? 'Simulado' : 'Produção'}
                         </span>
                       </button>
                     ))}

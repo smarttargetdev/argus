@@ -101,7 +101,7 @@ export const GraphqlAndCloudflare: React.FC<GraphqlAndCloudflareProps> = ({ toke
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-xl font-semibold text-white">Explorador GraphQL e Pacote Cloudflare Workers / D1</h1>
+        <h1 className="font-display text-xl font-semibold text-white">Infraestrutura e Borda</h1>
         <p className="text-xs text-slate-400 mt-1">
           Teste o cache distribuído sensível à expiração JWT e baixe o pacote pronto para deploy na borda da Cloudflare.
         </p>

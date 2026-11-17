@@ -483,7 +483,7 @@ export const SystemsManager: React.FC<SystemsManagerProps> = ({ token, onNotify,
                   type="submit"
                   className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
                 >
-                  {editing ? 'Salvar' : 'Criar Sistema via GraphQL'}
+                  {editing ? 'Salvar' : 'Criar Sistema'}
                 </button>
               </div>
             </form>

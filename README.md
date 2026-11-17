@@ -1,10 +1,165 @@
 # Smarties Secure Gate — Plataforma de Identidade, OAuth 2.0, RBAC e Governança na Borda
 
-Sistema completo de **Identity and Access Management (IAM)** construído com **React** + **Node.js**, otimizado para **alta taxa de leitura e baixa taxa de gravação** sobre **SQLite (WAL) / Cloudflare D1**, com API **GraphQL** centralizada, **cache distribuído na borda** sensível à expiração de tokens JWT e versões de permissão, **autenticação de dois fatores (TOTP + SMS)**, federação com **provedores externos (IdPs)** e conformidade **LGPD / GDPR**.
+Plataforma completa de **Identity and Access Management (IAM)** construída com **React** + **Node.js**, otimizada para **alta taxa de leitura e baixa taxa de gravação** sobre **SQLite (WAL) / Cloudflare D1**, com API **GraphQL** centralizada, **cache distribuído na borda** sensível à expiração de tokens JWT e versões de permissão, **autenticação de dois fatores (TOTP + SMS)**, federação com **provedores externos (IdPs)**, telemetria em tempo real e conformidade **LGPD / GDPR**.
 
 ---
 
-## Arquitetura do Sistema (Visão Obsidian / Mermaid)
+## Índice
+
+1. [Visão Geral e Stack Tecnológica](#visão-geral-e-stack-tecnológica)
+2. [Pré-requisitos e Instalação](#pré-requisitos-e-instalação)
+3. [Configuração e Variáveis de Ambiente](#configuração-e-variáveis-de-ambiente)
+4. [Execução, Build e Verificação](#execução-build-e-verificação)
+5. [Estrutura do Projeto](#estrutura-do-projeto)
+6. [Arquitetura e Diagramas (Obsidian / Mermaid)](#arquitetura-e-diagramas-obsidian--mermaid)
+7. [Sistemas e Contas Iniciais (Seed)](#sistemas-e-contas-iniciais-seed)
+8. [Módulos da Interface](#módulos-da-interface)
+9. [Referência de APIs e Endpoints](#referência-de-apis-e-endpoints)
+10. [Deploy na Borda (Cloudflare Workers + D1 + KV)](#deploy-na-borda-cloudflare-workers--d1--kv)
+11. [Segurança e Conformidade LGPD / GDPR](#segurança-e-conformidade-lgpd--gdpr)
+12. [Histórico de Versões Incrementais](#histórico-de-versões-incrementais)
+
+---
+
+## Visão Geral e Stack Tecnológica
+
+O **Smarties Secure Gate** centraliza autenticação, autorização e auditoria para múltiplos sistemas clientes em um único plano de controle:
+
+| Camada | Tecnologias | Responsabilidade |
+| :--- | :--- | :--- |
+| **Frontend** | React 19, TypeScript, Vite 8, Tailwind CSS 4, Lucide Icons | Console administrativo e portal do titular com telas de configuração e *master/details* em modais popup |
+| **Visualização** | D3.js 7, Recharts 3 | Tendência horária de usuários ativos (24h) e distribuição de códigos HTTP (`2xx`, `4xx`, `5xx`) por sistema |
+| **Backend & Auth** | Node.js, Express 4, `jose` (RS256/HS256 + JWKS), `otpauth`, `qrcode` | Emissão e verificação de JWTs, OAuth 2.0 / OIDC (PKCE S256), 2FA (TOTP/SMS/Backup), federação IdP e SSE |
+| **API Administrativa** | `graphql`, `dataloader` | API GraphQL única (`/graphql`) para CRUD administrativo e autoatendimento sem consultas N+1 |
+| **Persistência & Cache** | `better-sqlite3` (modo WAL), EdgeCache + KV Store em memória/D1 | Leituras indexadas de baixa latência, lotes assíncronos de auditoria e invalidação imediata por versão |
+| **Exportação Edge** | `jszip`, Cloudflare Workers/D1/KV Bundle | Geração de pacote pronto (`wrangler.toml`, `schema.d1.sql`, `src/worker.ts`) para deploy na Cloudflare |
+
+---
+
+## Pré-requisitos e Instalação
+
+### Pré-requisitos
+- **Node.js** `>= 20.x` (recomendado `v20 LTS` ou `v22 LTS`)
+- **npm** `>= 10.x`
+- Ferramentas de compilação C/C++ nativas caso o `better-sqlite3` precise compilar em seu sistema operacional (Python 3, `make`, `g++` no Linux ou Xcode Command Line Tools no macOS).
+
+### Passo a Passo de Instalação
+
+1. **Instale as dependências do projeto:**
+   ```bash
+   npm install
+   ```
+
+2. **Crie o arquivo de variáveis de ambiente `.env` a partir do modelo:**
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Ajuste os segredos obrigatórios no `.env`** (em especial `IAM_MASTER_SECRET` para produção).
+
+4. **Inicie o servidor integrado (Backend Express + Frontend Vite HMR/Middleware):**
+   ```bash
+   npm run dev
+   ```
+
+Na primeira inicialização, o servidor executará automaticamente:
+- A criação da pasta `./data/` e do banco SQLite em modo **WAL** (`./data/vektor-iam.sqlite`);
+- A aplicação do schema relacional completo com índices de cobertura;
+- A geração e persistência do par de chaves assimétricas **RSA (RS256 / JWKS)** na tabela `kv_store`;
+- O *seed* inicial com 3 sistemas OAuth 2.0, roles/permissões/claims RBAC, 4 provedores externos (IdPs) e contas de demonstração.
+
+Acesse a aplicação no navegador em **`http://localhost:3000`**.
+
+---
+
+## Configuração e Variáveis de Ambiente
+
+Todas as variáveis suportadas são configuradas via arquivo `.env` ou variáveis de ambiente do processo:
+
+| Variável | Padrão | Obrigatória | Descrição |
+| :--- | :--- | :--- | :--- |
+| `PORT` | `3000` | Não | Porta HTTP onde o Express e o Vite servem a aplicação (`0.0.0.0`). |
+| `APP_URL` | Detectado via request | Recomendado | URL pública base da aplicação (ex.: `https://iam.sua-empresa.com`), usada no OIDC Discovery e callbacks OAuth. |
+| `SQLITE_PATH` | `./data/vektor-iam.sqlite` | Não | Caminho do arquivo de banco SQLite (local ou volume persistente). |
+| `IAM_JWT_ISSUER` | `https://smarties-gate.edge.local` | Recomendado | Claim `iss` assinada nos JWTs emitidos e exibida no `/.well-known/openid-configuration`. |
+| `IAM_MASTER_SECRET` | Chave dev padrão | **Sim (Prod)** | Chave mestra (mín. 32 bytes) usada para criptografia **AES-256-GCM** dos segredos TOTP em repouso e assinatura interna. |
+| `GOOGLE_OAUTH_CLIENT_ID` | *(vazio — modo simulado)* | Não | Client ID real do Google OAuth 2.0. Quando definido, desativa o modo simulado para Google. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | *(vazio)* | Não | Client Secret do Google OAuth 2.0. |
+| `GITHUB_OAUTH_CLIENT_ID` | *(vazio — modo simulado)* | Não | Client ID real do GitHub OAuth 2.0. |
+| `GITHUB_OAUTH_CLIENT_SECRET` | *(vazio)* | Não | Client Secret do GitHub OAuth 2.0. |
+| `NODE_ENV` | `development` | Não | Em `production`, se existir a pasta `dist/`, o Express serve os arquivos estáticos compilados em vez do middleware Vite. |
+
+### Parâmetros de Otimização SQLite WAL Aplicados Automaticamente
+O módulo de banco (`server/db.ts`) configura as seguintes diretivas na abertura da conexão:
+- `journal_mode = WAL`: permite leituras concorrentes sem bloqueio durante gravações;
+- `synchronous = NORMAL`: reduz latência de *fsync* mantendo segurança no modo WAL;
+- `cache_size = -64000`: reserva 64 MB de cache de páginas em RAM;
+- `temp_store = MEMORY` e `mmap_size = 268435456` (256 MB *memory-mapped I/O*);
+- `foreign_keys = ON`: garante integridade referencial entre sistemas, usuários, roles, permissões e vínculos.
+
+---
+
+## Execução, Build e Verificação
+
+| Comando | Script (`package.json`) | Finalidade |
+| :--- | :--- | :--- |
+| `npm run dev` | `tsx server.ts` | Inicia backend Express + middleware Vite na porta `3000` em desenvolvimento. |
+| `npm run build` | `vite build` | Compila o frontend React/TypeScript para a pasta `dist/`. |
+| `npm run start` | `node server.ts` | Executa o servidor em produção servindo o bundle estático de `dist/` (`NODE_ENV=production`). |
+| `npm run lint` | `tsc --noEmit` | Executa verificação estrita de tipos TypeScript em frontend e backend. |
+| `npm run preview` | `vite preview` | Pré-visualização isolada dos ativos compilados do Vite. |
+| `npm run clean` | `rm -rf dist server.js` | Limpa artefatos de compilação anteriores. |
+
+### Fluxo Recomendado para Produção Node.js
+```bash
+npm ci
+npm run lint
+npm run build
+NODE_ENV=production PORT=3000 npm start
+```
+
+---
+
+## Estrutura do Projeto
+
+```text
+.
+├── .env.example                 # Modelo de variáveis de ambiente
+├── index.html                   # Entrada HTML, fontes e metadados OpenGraph
+├── package.json                 # Scripts e dependências (React, D3, Recharts, Express, SQLite, GraphQL)
+├── server.ts                    # Servidor Express: Auth, OAuth 2.0/OIDC, 2FA, SSE, /graphql e Bundle CF
+├── server/
+│   ├── db.ts                    # Conexão SQLite WAL, schema D1, índices compostos e seed inicial
+│   ├── cryptoAuth.ts            # Chaves RS256/JWKS, assinatura/validação JWT, TOTP, AES-256-GCM e PII mask
+│   ├── edgeCache.ts             # Cache distribuído com TTL = min(policy_ttl, jwt.exp - now) e versionamento KV
+│   ├── graphql.ts               # Schema GraphQL, DataLoaders (zero N+1), queries e mutations RBAC/LGPD
+│   ├── telemetry.ts             # Hub SSE em tempo real e fila assíncrona em lote para audit_logs
+│   └── cloudflareExport.ts      # Gerador de wrangler.toml, schema.d1.sql e Worker TS (.zip)
+└── src/
+    ├── App.tsx                  # Layout principal, sidebar, breadcrumb, diagnósticos GraphQL e modal de sessão
+    ├── hooks/
+    │   └── useSessionExpiration.ts  # Hook de contagem regressiva do JWT e alerta 5 min antes de expirar
+    ├── lib/
+    │   └── graphqlClient.ts     # Cliente GraphQL com leitura dos headers CF-Cache-Status e métricas SQLite
+    ├── types/
+    │   └── iam.ts               # Tipagens TypeScript compartilhadas de domínio IAM
+    └── components/
+        ├── AuthGate.tsx             # Tela de login (sem auto-registro), seleção de sistema, 2FA e IdPs
+        ├── OverviewTelemetry.tsx    # Estatísticas-chave, gráfico D3 (24h), gráfico Recharts HTTP, Alertas Recentes e KPIs
+        ├── AuditLogs.tsx            # Tabela pesquisável e filtrável de logs de auditoria via GraphQL + CSV/SSE/Popup
+        ├── SystemsManager.tsx       # CRUD de sistemas OAuth 2.0, políticas JWT/2FA e rotação de client_secret
+        ├── UsersManager.tsx         # CRUD administrativo de usuários e vínculos multi-sistema
+        ├── RbacClaimsManager.tsx    # Gestão de roles, permissões atômicas, claims personalizadas e preview JWT
+        ├── IdpAndOAuthSandbox.tsx   # Configuração de IdPs externos em popup e Sandbox OAuth 2.0 + PKCE S256
+        ├── GraphqlAndCloudflare.tsx # Explorador GraphQL ao vivo e download do pacote Cloudflare Workers/D1
+        └── ProfileAndCompliance.tsx # Portal centralizado (2FA TOTP/SMS, sessões) e central LGPD/GDPR
+```
+
+---
+
+## Arquitetura e Diagramas (Obsidian / Mermaid)
+
+### Arquitetura Geral do Sistema
 
 ```mermaid
 flowchart TB
@@ -12,7 +167,7 @@ flowchart TB
         UI_AUTH["Login · 2FA Gate · Sandbox OAuth 2.0"]
         UI_ADMIN["Painel Admin (100% GraphQL CRUD)"]
         UI_PROFILE["Perfil Central (TOTP QR, SMS, Sessões, LGPD)"]
-        UI_GQL["GraphQL Explorer & Telemetria Tempo Real"]
+        UI_GQL["Infraestrutura · Telemetria D3/Recharts · Alertas"]
     end
 
     subgraph Edge["Backend Node.js & Adaptador Cloudflare Worker"]
@@ -42,9 +197,7 @@ flowchart TB
     SSE --> DB_WRITE
 ```
 
----
-
-## Fluxo de Autenticação JWT / OAuth 2.0 + 2FA Pós-Login
+### Fluxo de Autenticação JWT / OAuth 2.0 + 2FA Pós-Login
 
 ```mermaid
 sequenceDiagram
@@ -70,9 +223,7 @@ sequenceDiagram
     API-->>U: Retorna JWT assinado (RS256/HS256) com TTL e claims específicas
 ```
 
----
-
-## Estratégia de Cache Distribuído na Borda & Prevenção de N+1
+### Estratégia de Cache Distribuído na Borda & Prevenção de N+1
 
 ```mermaid
 flowchart LR
@@ -88,9 +239,7 @@ flowchart LR
     STORE --> RES_MISS["Retorna Resposta · CF-Cache-Status: MISS"]
 ```
 
----
-
-## Modelo de Dados SQLite / Cloudflare D1
+### Modelo de Dados SQLite / Cloudflare D1
 
 ```mermaid
 erDiagram
@@ -105,18 +254,115 @@ erDiagram
     USERS ||--o{ CONSENT_RECORDS : "LGPD_GDPR"
     SYSTEMS ||--o{ CONSENT_RECORDS : "versiona"
     USERS ||--o{ SESSIONS : "mantem"
+    USERS ||--o{ EXTERNAL_IDENTITIES : "federa"
+    SYSTEMS ||--o{ AUDIT_LOGS : "registra"
 ```
 
 ---
 
-## Principais Capacidades Implementadas
+## Sistemas e Contas Iniciais (Seed)
 
-- **Sistemas OAuth 2.0 Multi-Tenant**: Criação, edição, exclusão e rotação de `client_secret`, configuração individual de TTL do JWT, algoritmo (`RS256` com `/.well-known/jwks.json` ou `HS256`), política de 2FA obrigatório, política de cache na borda e provedores externos permitidos.
-- **RBAC e Claims Personalizadas no Banco**: Permissões atômicas, funções por sistema e claims tipadas (`string`, `number`, `boolean`, `json`) agrupadas dinamicamente no payload do token JWT.
-- **GraphQL Otimizado para Leitura**: Todas as operações do painel administrativo trafegam por `POST /graphql` com `DataLoader` (zero N+1), índices compostos de cobertura e headers de diagnóstico (`CF-Cache-Status`, `X-Cache-TTL-Remaining`, `X-SQLite-Queries-Count`, `X-Query-Duration-Ms`).
-- **2FA Completo (TOTP + SMS + Backup Codes)**: QR Code SVG RFC 6238, códigos de backup descartáveis com hash SHA-256 e OTP por SMS, exigidos após autenticação inicial por senha/JWT ou OAuth 2.0 conforme política do sistema.
-- **Pacote Pronto Cloudflare Workers + D1 + KV**: Exportação direta de `wrangler.toml`, `schema.d1.sql` e `src/worker.ts` pela interface ou via download `.zip`.
-- **Conformidade LGPD & GDPR**: Registro de consentimento versionado por sistema, portabilidade (exportação JSON), anonimização irreversível preservando integridade de auditoria e mascaramento de PII nos logs estruturados.
+> **Nota de segurança:** O auto-registro público de usuários na tela de login está **desabilitado** (`POST /api/auth/register` retorna `403 Forbidden`). Novos usuários devem ser provisionados exclusivamente por administradores na aba **Usuários** (ou via federação IdP externa quando habilitada).
+
+### Contas de Demonstração Pré-Cadastradas
+
+| Perfil | E-mail | Senha | 2FA Inicial | Papel Principal (`vektor-core`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Administrador Global** | `admin@vektor.iam` | `Vektor@2026!` | Opcional | `super_admin` (acesso total + `EdgePay` + `Atlas BI`) |
+| **Operadora IAM** | `clara.silva@vektor.iam` | `Clara@2026!` | SMS Ativo (`+55 21 98420-1190`) | `iam_operator` |
+| **Analista** | `rafael.costa@vektor.iam` | `Rafael@2026!` | Inativo | `analytics_viewer` (`Atlas BI`) / `gateway_developer` (`EdgePay`) |
+
+### Sistemas OAuth 2.0 Iniciais
+
+| Sistema | Slug | Algoritmo / TTL JWT | Edge Cache TTL | Política 2FA |
+| :--- | :--- | :--- | :--- | :--- |
+| **Smarties Secure Gate Core** | `vektor-core` | `RS256` · `3600s` | `120s` | Opcional / Perfil |
+| **EdgePay Gateway** | `edgepay-api` | `RS256` · `900s` | `45s` | **Obrigatório** |
+| **Atlas Analytics Portal** | `atlas-bi` | `HS256` · `7200s` | `300s` | Opcional / Perfil |
+
+---
+
+## Módulos da Interface
+
+- **Visão Geral**:
+  - **Estatísticas-Chave**: contagens ao vivo de usuários ativos, tokens JWT válidos e alertas de segurança recentes via GraphQL.
+  - **Gráficos Analíticos**: tendência horária de usuários ativos nas últimas 24 horas (D3.js) e distribuição de códigos HTTP `2xx` / `4xx` / `5xx` por sistema (Recharts).
+  - **Alertas Recentes**: monitoramento em tempo real via SSE + polling de 10 segundos para tentativas de acesso não autorizadas e falhas de 2FA, com inspetor detalhado em popup.
+  - **AuditLogs**: tabela pesquisável e filtrável por sistema, status (`Sucesso`, `Negado`, `Erro`), categoria de ação, tipo de recurso e janela temporal, com ordenação, exportação CSV, diagnósticos GraphQL e inspeção JSON estruturada em popup.
+- **Sistemas**: criação, edição, remoção, configuração de redirect URIs, TTL de JWT, algoritmo (`RS256`/`HS256`), obrigatoriedade de 2FA, IdPs permitidos e rotação de `client_secret` (exibição única em popup).
+- **Usuários**: criação administrativa, edição, bloqueio e gerenciamento em popup de vínculos multi-sistema (`Usuário + Sistema + Role`).
+- **Permissões**: catálogo de roles e permissões atômicas, configuração em popup de permissões vinculadas e claims tipadas com pré-visualização ao vivo do payload JWT emitido.
+- **Provedores**: configuração em popup de Google, GitHub, OIDC genérico e Microsoft Entra ID / SAML, além de **Sandbox OAuth 2.0 + PKCE (S256)** interativo.
+- **Infraestrutura**: explorador GraphQL ao vivo exibindo `CF-Cache-Status`, duração, contagem de queries SQLite e TTL restante, além de visualizador/download `.zip` do pacote Cloudflare.
+- **Conformidade**: matriz de consentimento LGPD/GDPR por sistema, exportação de portabilidade JSON (SAR) e fluxo de anonimização irreversível.
+- **Perfil**: dados centralizados, alteração de senha, configuração em popup de **TOTP (QR Code SVG + 8 códigos de backup)** e **SMS OTP**, método 2FA preferencial e revogação instantânea de sessões JWT ativas.
+- **Aviso de Expiração de Sessão**: cronômetro contínuo no cabeçalho e modal discreto exibido **5 minutos antes** do vencimento do JWT.
+
+---
+
+## Referência de APIs e Endpoints
+
+| Endpoint | Método | Autenticação | Descrição |
+| :--- | :--- | :--- | :--- |
+| `/api/health` | `GET` | Pública | Status do servidor, motor `sqlite-wal` e prontidão D1. |
+| `/.well-known/openid-configuration` | `GET` | Pública | Documento de descoberta OpenID Connect (issuer, endpoints e claims). |
+| `/.well-known/jwks.json` | `GET` | Pública | Chave pública RSA (JWK) para validação externa de tokens `RS256`. |
+| `/api/public/systems` | `GET` | Pública | Lista sistemas ativos e provedores IdP disponíveis para a tela de login. |
+| `/api/auth/login` | `POST` | Credenciais | Autenticação por e-mail/senha + disparo condicional de desafio 2FA (`mfaToken`). |
+| `/api/auth/register` | `POST` | Bloqueado | Retorna `403 Forbidden` e registra tentativa em auditoria (`AUTH_SELF_REGISTER_BLOCKED`). |
+| `/api/auth/mfa/send-sms` | `POST` | `mfaToken` | Gera e registra OTP SMS de 6 dígitos (TTL 5 min). |
+| `/api/auth/mfa/verify` | `POST` | `mfaToken` | Valida código TOTP, SMS OTP ou backup code e emite o JWT final (ou libera código OAuth). |
+| `/api/oauth/authorize` | `POST` | Credenciais | Emite `authorization_code` OAuth 2.0 com suporte a PKCE (`S256`) e 2FA condicional. |
+| `/api/oauth/token` | `POST` | Client / PKCE | Troca `authorization_code` (validando `code_verifier`) por `access_token` JWT. |
+| `/api/oauth/userinfo` | `GET` | `Bearer JWT` | Retorna claims OIDC do titular com suporte a Edge Cache. |
+| `/api/auth/decode-jwt` | `POST` | Pública | Decodifica e valida assinatura JWT para o Sandbox OAuth. |
+| `/api/auth/idp/:provider/url` | `GET` | Pública | Retorna modo simulado ou URL OAuth real do provedor externo. |
+| `/api/auth/idp/simulate` | `POST` | Pública | Simula retorno OIDC/SAML com provisionamento JIT e desafio 2FA. |
+| `/graphql` | `POST` | `Bearer JWT` | API GraphQL única para consultas e mutações administrativas e do titular. |
+| `/api/telemetry/stream` | `GET` | Pública | Stream **SSE** (`Server-Sent Events`) de eventos de auditoria e alertas em tempo real. |
+| `/api/cloudflare/bundle` | `GET` | Pública | Lista os arquivos gerados para Cloudflare Workers + D1 + KV. |
+| `/api/cloudflare/download` | `GET` | Pública | Faz download do arquivo `.zip` completo para deploy na Cloudflare. |
+
+---
+
+## Deploy na Borda (Cloudflare Workers + D1 + KV)
+
+Você pode exportar o pacote pronto diretamente pela aba **Infraestrutura** (**Baixar Pacote .ZIP**) ou via `GET /api/cloudflare/download`. Após extrair o pacote:
+
+1. **Crie o banco D1 na Cloudflare:**
+   ```bash
+   npx wrangler d1 create smarties-gate-d1
+   ```
+
+2. **Aplique o schema SQL otimizado com índices de cobertura:**
+   ```bash
+   npx wrangler d1 execute smarties-gate-d1 --file=./schema.d1.sql
+   ```
+
+3. **Crie o namespace Workers KV para versionamento de permissões e revogação instantânea de JTI:**
+   ```bash
+   npx wrangler kv namespace create IAM_KV
+   ```
+
+4. **Atualize os IDs gerados (`database_id` e `id` do KV) no arquivo `wrangler.toml` e configure o segredo de assinatura:**
+   ```bash
+   npx wrangler secret put JWT_HMAC_FALLBACK
+   ```
+
+5. **Publique o Worker na borda global:**
+   ```bash
+   npx wrangler deploy
+   ```
+
+---
+
+## Segurança e Conformidade LGPD / GDPR
+
+- **Armazenamento de Credenciais e Segredos**: senhas com hash criptográfico salgado e segredos TOTP cifrados em repouso com **AES-256-GCM** derivado de `IAM_MASTER_SECRET`.
+- **Bloqueio de Auto-Registro**: criação de usuários restrita ao controle administrativo, evitando cadastros não autorizados diretamente na tela de login.
+- **Invalidacão Consciente de Contexto**: qualquer alteração de role, permissão, vínculo ou política incrementa imediatamente `perm_version` (`u_ver`) / `policy_version` (`s_ver`), invalidando entradas anteriores no Edge Cache sem esperar a expiração do TTL.
+- **Mascaramento de PII**: e-mails e endereços IP são mascarados antes da persistência e transmissão em `audit_logs` e no stream SSE.
+- **Direitos do Titular**: consentimento granular versionado por sistema, portabilidade estruturada em JSON e anonimização irreversível preservando a integridade da trilha de auditoria.
 
 ---
 
@@ -172,8 +418,13 @@ erDiagram
 - Atualização da identidade visual e nominal da plataforma para **Smarties Secure Gate** no console React, título HTML/OpenGraph, emissor TOTP/JWT, sistema core e pacote exportável Cloudflare Workers/D1.
 - Refinamento dos textos da tela de autenticação (`AuthGate`): subtítulo alterado para **"Gerenciamento de Controle de Acesso"**, instrução para **"Selecione o sistema e o usuário para validar a identidade."** e rótulo de seleção para **"Sistema"**.
 
+### v1.9.0 — Revisão Ortográfica, Tradução e Padronização de Textos nos Componentes
+- Correção de acentuação em mensagens de autenticação/2FA/IdP (`AuthGate`) e atualização das referências remanescentes para **Smarties Secure Gate**.
+- Remoção do sufixo `"via GraphQL"` em botões de modais (`Criar Sistema`, `Criar Role`, `Salvar`, `Criar Usuário`), padronização de ações (`Remover Usuário`) e atualização do texto de função padrão para novos usuários.
+- Tradução integral de rótulos em inglês da interface (`Sucesso`, `Negado`, `Erro`, `Ativo`, `Bloqueado`, `Versões KV e Lotes de Auditoria`, `Atualização ao vivo`, `Emissor`, `Escopos`, `Produção`) e alinhamento dos títulos de **Provedores de Identidade** e **Infraestrutura e Borda**.
 
+### v1.10.0 — Documentação Detalhada do Sistema, Configuração e Instalação no README
+- Expansão completa do `README.md` com guia de pré-requisitos e instalação passo a passo, tabela de variáveis de ambiente (`.env`), diretivas SQLite WAL, comandos de execução/build/lint, árvore detalhada do projeto, credenciais/sistemas iniciais, referência completa de endpoints REST/OIDC/GraphQL/SSE, guia de deploy Cloudflare Workers + D1 + KV e diretrizes de segurança/LGPD, mantendo os diagramas Mermaid compatíveis com Obsidian e o histórico incremental no final.
 
-
-
-
+### v1.11.0 — Novo Componente `AuditLogs` para Trilha de Auditoria via GraphQL
+- Criação do componente **`AuditLogs`** (`/src/components/AuditLogs.tsx`) substituindo o gerenciador anterior na visão administrativa (**Visão Geral**), com busca textual ampla (incluindo `detailsJson`), filtros por sistema, status, categoria de ação, tipo de recurso, janela de tempo (`1h`, `24h`, `7d`, todos) e limite GraphQL (`50`, `100`, `200`), ordenação por horário/duração, resumo tabular por status, exportação CSV, atualização em tempo real via SSE e modal popup *master/details* com cópia de JSON.

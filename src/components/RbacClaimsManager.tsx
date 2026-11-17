@@ -213,7 +213,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
 
   // Live JWT Payload Preview constructed from inspected role
   const previewJwtPayload = {
-    iss: 'https://smarties-gate.edge.local',
+    iss: 'https://smarties-secure-gate.edge.local',
     sub: 'usr-exemplo-01',
     aud: currentSystem?.slug || 'vektor-core',
     sys: currentSystem?.slug || 'vektor-core',
@@ -307,7 +307,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
                   <div className="min-w-0">
                     <div className="font-mono font-medium truncate">{r.name}</div>
                     <div className="text-[11px] text-slate-400">
-                      {r.permissions.length} perms · {r.claims.length} claims {r.isDefault ? '· padrão' : ''}
+                      {r.permissions.length} permissões · {r.claims.length} claims {r.isDefault ? '· padrão' : ''}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -458,7 +458,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
           <div className="max-w-md w-full bg-[#111827] border border-slate-700 rounded-lg p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-display text-base font-semibold text-white">Criar Nova Role</h3>
+              <h3 className="font-display text-base font-semibold text-white">Nova Role</h3>
               <button
                 type="button"
                 onClick={() => setCreatingRoleModal(false)}
@@ -501,7 +501,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
                   type="submit"
                   className="px-4 py-2 text-xs font-semibold bg-[#F6821F] text-slate-950 rounded-md"
                 >
-                  Criar Role via GraphQL
+                  Criar Role
                 </button>
               </div>
             </form>
@@ -613,7 +613,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
                   onChange={(e) => setRoleIsDefault(e.target.checked)}
                   className="rounded border-slate-700 bg-[#090D16]"
                 />
-                <span>Atribuir como função padrão em registros e provisionamento JIT</span>
+                <span>Atribuir como função padrão para novos usuários e provisionamento JIT</span>
               </label>
 
               {/* Permissions Checklist */}
@@ -727,7 +727,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
                   className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Salvar via GraphQL</span>
+                  <span>Salvar</span>
                 </button>
               </div>
             </form>
