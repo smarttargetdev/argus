@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Shield, KeyRound, Smartphone, Lock, ArrowRight, Globe, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Shield, KeyRound, Smartphone, Lock, ArrowRight, Globe, AlertCircle, CheckCircle2, ChevronDown, X, Check } from 'lucide-react';
 import type { AuthSessionState, ExecutionEnvironment, PublicPlatformConfig } from '../types/iam';
 
 interface PublicSystemItem {
@@ -34,6 +34,21 @@ interface AuthGateProps {
   onAuthenticated: (session: AuthSessionState) => void;
 }
 
+const QUICK_ACCOUNTS = [
+  {
+    id: 'admin',
+    label: 'Administrador Global',
+    email: 'admin@vektor.iam',
+    password: 'Vektor@2026!',
+  },
+  {
+    id: 'clara',
+    label: 'Operadora (2FA SMS Ativo)',
+    email: 'clara.silva@vektor.iam',
+    password: 'Clara@2026!',
+  },
+] as const;
+
 export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const [systems, setSystems] = useState<PublicSystemItem[]>([]);
   const [idps, setIdps] = useState<PublicIdpItem[]>([]);
@@ -55,6 +70,20 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const userComboRef = useRef<HTMLDivElement>(null);
+  const userInputRef = useRef<HTMLInputElement>(null);
+  const suppressFocusOpenRef = useRef(false);
+
+  useEffect(() => {
+    const handleClickOutside = (ev: MouseEvent) => {
+      if (userComboRef.current && !userComboRef.current.contains(ev.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     fetch('/api/public/systems')
@@ -97,6 +126,41 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
   const currentSystem = systems.find((s) => s.slug === selectedSlug);
   const showDemoPanel = executionEnvironment !== null && executionEnvironment !== 'Produção';
+  const matchedQuickAccount = showDemoPanel
+    ? QUICK_ACCOUNTS.find((acc) => acc.email.toLowerCase() === email.trim().toLowerCase())
+    : undefined;
+  const isQuickAccount = Boolean(matchedQuickAccount);
+
+  const handleSelectQuickAccount = (acc: (typeof QUICK_ACCOUNTS)[number]) => {
+    setMfaPending(null);
+    setError(null);
+    setEmail(acc.email);
+    setPassword(acc.password);
+    setUserDropdownOpen(false);
+  };
+
+  const handleEmailInputChange = (nextValue: string) => {
+    const nextMatched = showDemoPanel
+      ? QUICK_ACCOUNTS.find((acc) => acc.email.toLowerCase() === nextValue.trim().toLowerCase())
+      : undefined;
+    setEmail(nextValue);
+    setUserDropdownOpen(false);
+    setPassword(nextMatched ? nextMatched.password : '');
+  };
+
+  const handleSwitchToManualEntry = () => {
+    suppressFocusOpenRef.current = true;
+    setEmail('');
+    setPassword('');
+    setError(null);
+    setUserDropdownOpen(false);
+    window.setTimeout(() => {
+      userInputRef.current?.focus();
+      window.setTimeout(() => {
+        suppressFocusOpenRef.current = false;
+      }, 50);
+    }, 0);
+  };
 
   const handleSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -322,27 +386,137 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Usuário</label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="voce@empresa.com"
-                    className="w-full bg-[#090D16] border border-slate-700/80 rounded-md px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#F6821F]"
-                  />
+                <div ref={userComboRef} className="relative">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="login-user-input" className="block text-xs font-medium text-slate-300">
+                      Usuário
+                    </label>
+                    {isQuickAccount && matchedQuickAccount && (
+                      <span className="text-[11px] text-[#F6821F] font-medium">
+                        {matchedQuickAccount.label}
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      ref={userInputRef}
+                      id="login-user-input"
+                      type="email"
+                      required
+                      role="combobox"
+                      aria-expanded={userDropdownOpen}
+                      aria-autocomplete="list"
+                      value={email}
+                      onChange={(e) => handleEmailInputChange(e.target.value)}
+                      onFocus={() => {
+                        if (suppressFocusOpenRef.current) {
+                          suppressFocusOpenRef.current = false;
+                          return;
+                        }
+                        if (showDemoPanel) setUserDropdownOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setUserDropdownOpen(false);
+                      }}
+                      placeholder="Selecione uma conta rápida ou digite o e-mail"
+                      className="w-full bg-[#090D16] border border-slate-700/80 rounded-md pl-3.5 pr-16 py-2.5 text-sm text-white focus:outline-none focus:border-[#F6821F]"
+                    />
+                    <div className="absolute right-2 flex items-center gap-1">
+                      {email && (
+                        <button
+                          type="button"
+                          onClick={handleSwitchToManualEntry}
+                          title="Limpar e digitar manualmente"
+                          className="p-1 text-slate-400 hover:text-slate-200 rounded transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setUserDropdownOpen((prev) => !prev)}
+                        aria-label="Abrir opções de usuário"
+                        className="p-1 text-slate-400 hover:text-white rounded transition-colors"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {userDropdownOpen && (
+                    <div className="absolute z-30 left-0 right-0 mt-1.5 bg-[#090D16] border border-slate-700/90 rounded-md shadow-xl overflow-hidden">
+                      {showDemoPanel && (
+                        <>
+                          <div className="px-3 py-1.5 text-[11px] font-medium text-[#F6821F] bg-slate-900/80 border-b border-slate-800/80">
+                            Contas de {executionEnvironment}
+                          </div>
+                          <div className="divide-y divide-slate-800/60">
+                            {QUICK_ACCOUNTS.map((acc) => {
+                              const isSelected = matchedQuickAccount?.id === acc.id;
+                              return (
+                                <button
+                                  key={acc.id}
+                                  type="button"
+                                  onClick={() => handleSelectQuickAccount(acc)}
+                                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left transition-colors ${
+                                    isSelected
+                                      ? 'bg-[#F6821F]/15 text-white'
+                                      : 'hover:bg-slate-800/60 text-slate-200'
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-medium truncate">{acc.label}</div>
+                                    <div className="text-[11px] font-mono text-slate-400 truncate">
+                                      {acc.email}
+                                    </div>
+                                  </div>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-[#F6821F] shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSwitchToManualEntry}
+                        className="w-full px-3 py-2 text-left text-xs font-medium text-[#F6821F] hover:text-[#ff983f] hover:bg-slate-800/60 border-t border-slate-800/80 transition-colors"
+                      >
+                        Digitar credenciais...
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Senha</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="login-password-input" className="block text-xs font-medium text-slate-300">
+                      Senha
+                    </label>
+                    {isQuickAccount && (
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-slate-500" />
+                        <span>Preenchida (somente leitura)</span>
+                      </span>
+                    )}
+                  </div>
                   <input
+                    id="login-password-input"
                     type="password"
                     required
+                    readOnly={isQuickAccount}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      if (!isQuickAccount) setPassword(e.target.value);
+                    }}
                     placeholder="••••••••"
-                    className="w-full bg-[#090D16] border border-slate-700/80 rounded-md px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#F6821F]"
+                    className={`w-full border rounded-md px-3.5 py-2.5 text-sm focus:outline-none ${
+                      isQuickAccount
+                        ? 'bg-[#090D16]/60 border-slate-800 text-slate-400 cursor-not-allowed'
+                        : 'bg-[#090D16] border-slate-700/80 text-white focus:border-[#F6821F]'
+                    }`}
                   />
                 </div>
 
@@ -393,45 +567,45 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
                 {currentSystem && (
                   <table className="w-full text-xs border-collapse">
-                    <tbody className="divide-y divide-slate-800/70">
+                    <tbody>
                       <tr>
-                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
-                          Sistema Alvo
+                        <th scope="row" className="py-0.5 pr-4 text-left font-normal text-slate-400">
+                          Sistema Selecionado
                         </th>
-                        <td className="py-2 text-right font-mono text-slate-200">
+                        <td className="py-0.5 text-right font-mono text-slate-200">
                           {currentSystem.slug}
                         </td>
                       </tr>
                       <tr>
-                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                        <th scope="row" className="py-0.5 pr-4 text-left font-normal text-slate-400">
                           Algorítimo de Assinatura
                         </th>
-                        <td className="py-2 text-right font-mono tabular-nums text-slate-200">
+                        <td className="py-0.5 text-right font-mono tabular-nums text-slate-200">
                           {currentSystem.signingAlg}
                         </td>
                       </tr>
                       <tr>
-                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                        <th scope="row" className="py-0.5 pr-4 text-left font-normal text-slate-400">
                           Expiração do Token
                         </th>
-                        <td className="py-2 text-right font-mono tabular-nums text-slate-200">
+                        <td className="py-0.5 text-right font-mono tabular-nums text-slate-200">
                           {currentSystem.jwtTtlSeconds}s
                         </td>
                       </tr>
                       <tr>
-                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                        <th scope="row" className="py-0.5 pr-4 text-left font-normal text-slate-400">
                           Expiração do Cache
                         </th>
-                        <td className="py-2 text-right font-mono tabular-nums text-slate-200">
+                        <td className="py-0.5 text-right font-mono tabular-nums text-slate-200">
                           {currentSystem.edgeCacheTtl}s
                         </td>
                       </tr>
                       <tr>
-                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                        <th scope="row" className="py-0.5 pr-4 text-left font-normal text-slate-400">
                           Autenticação de 2 Fatores
                         </th>
                         <td
-                          className={`py-2 text-right ${
+                          className={`py-0.5 text-right ${
                             currentSystem.requireMfa ? 'text-amber-400 font-medium' : 'text-slate-300'
                           }`}
                         >
@@ -442,55 +616,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   </table>
                 )}
               </div>
-
-              {showDemoPanel && (
-                <>
-                  <hr className="border-0 border-t border-slate-800/80" />
-
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <h2 className="font-display text-sm font-semibold text-white">Contas Rápidas</h2>
-                      <p className="text-xs text-slate-400 leading-relaxed">
-                        Selecione uma conta abaixo para preencher as credenciais de acesso no ambiente de{' '}
-                        {executionEnvironment}.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMfaPending(null);
-                          setError(null);
-                          setEmail('admin@vektor.iam');
-                          setPassword('Vektor@2026!');
-                        }}
-                        className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
-                      >
-                        <div className="text-xs font-medium text-slate-200">Administrador Global</div>
-                        <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                          admin@vektor.iam · Vektor@2026!
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMfaPending(null);
-                          setError(null);
-                          setEmail('clara.silva@vektor.iam');
-                          setPassword('Clara@2026!');
-                        }}
-                        className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
-                      >
-                        <div className="text-xs font-medium text-slate-200">Operadora (2FA SMS Ativo)</div>
-                        <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                          clara.silva@vektor.iam · Clara@2026!
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
             </>
           ) : (
             /* Post-Login 2FA Gate */
@@ -690,7 +815,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
       <footer className="max-w-6xl w-full mx-auto pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
         <span>{platformName}</span>
-        <span>™》Smart Target, 2026</span>
+        <span>© 2026, Smart Target</span>
       </footer>
     </div>
   );

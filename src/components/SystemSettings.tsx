@@ -21,7 +21,7 @@ interface SystemSettingsProps {
   onSettingsUpdated?: (settings: PlatformSystemSettings) => void;
 }
 
-type SettingsSection = 'all' | 'environment' | 'jwt' | 'security' | 'edge' | 'compliance';
+type SettingsTab = 'environment' | 'jwt' | 'security' | 'edge' | 'compliance';
 
 const SYSTEM_SETTINGS_QUERY = `
   query AdminSystemSettings {
@@ -167,13 +167,16 @@ const ENVIRONMENTS: Array<{
   },
 ];
 
-const SECTIONS: Array<{ id: SettingsSection; label: string }> = [
-  { id: 'all', label: 'Todos os Parâmetros' },
-  { id: 'environment', label: 'Ambiente & Geral' },
-  { id: 'jwt', label: 'JWT & OAuth 2.0' },
-  { id: 'security', label: 'Segurança & 2FA' },
-  { id: 'edge', label: 'Edge Cache & Auditoria' },
-  { id: 'compliance', label: 'LGPD & Privacidade' },
+const TABS: Array<{
+  id: SettingsTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'environment', label: 'Ambiente & Geral', icon: Server },
+  { id: 'jwt', label: 'JWT & OAuth 2.0', icon: KeyRound },
+  { id: 'security', label: 'Segurança & 2FA', icon: Lock },
+  { id: 'edge', label: 'Edge Cache & Auditoria', icon: Database },
+  { id: 'compliance', label: 'LGPD & Privacidade', icon: ShieldCheck },
 ];
 
 export const SystemSettings: React.FC<SystemSettingsProps> = ({
@@ -186,7 +189,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
   const [draft, setDraft] = useState<PlatformSystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<SettingsSection>('all');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('environment');
   const [confirmProdModal, setConfirmProdModal] = useState(false);
   const [confirmResetModal, setConfirmResetModal] = useState(false);
 
@@ -347,8 +350,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
     }
   };
 
-  const showSection = (sec: Exclude<SettingsSection, 'all'>) =>
-    activeSection === 'all' || activeSection === sec;
+  const activeTabMeta = TABS.find((t) => t.id === activeTab);
 
   return (
     <div className="space-y-6">
@@ -416,22 +418,35 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
         </div>
       )}
 
-      {/* Interactive Section Filter Bar */}
-      <div className="flex flex-wrap items-center gap-1 p-1 bg-[#111827] border border-slate-800/90 rounded-lg w-fit">
-        {SECTIONS.map((sec) => (
-          <button
-            key={sec.id}
-            type="button"
-            onClick={() => setActiveSection(sec.id)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-              activeSection === sec.id
-                ? 'bg-[#F6821F] text-slate-950 font-semibold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            {sec.label}
-          </button>
-        ))}
+      {/* Configuration Tabs */}
+      <div
+        role="tablist"
+        aria-label="Seções de Configuração"
+        className="flex items-center gap-1 overflow-x-auto border-b border-slate-800/90"
+      >
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`settings-tab-${tab.id}`}
+              aria-selected={isActive}
+              aria-controls={`settings-panel-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0 ${
+                isActive
+                  ? 'border-[#F6821F] text-white bg-[#111827]/70'
+                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+              }`}
+            >
+              <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-500'}`} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {loading || !draft ? (
@@ -439,9 +454,15 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
           Carregando parâmetros do sistema via GraphQL...
         </div>
       ) : (
-        <form id="system-settings-form" onSubmit={handleRequestSave} className="space-y-6">
+        <form
+          id="system-settings-form"
+          onSubmit={handleRequestSave}
+          role="tabpanel"
+          aria-labelledby={activeTabMeta ? `settings-tab-${activeTabMeta.id}` : undefined}
+          className="space-y-6"
+        >
           {/* 1. Ambiente de Execução & Plataforma */}
-          {showSection('environment') && (
+          {activeTab === 'environment' && (
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Server className="w-4 h-4 text-[#F6821F]" />
@@ -515,7 +536,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
           )}
 
           {/* 2. Tokens JWT & OAuth 2.0 */}
-          {showSection('jwt') && (
+          {activeTab === 'jwt' && (
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <KeyRound className="w-4 h-4 text-[#F6821F]" />
@@ -598,7 +619,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
           )}
 
           {/* 3. Segurança, Autenticação & 2FA */}
-          {showSection('security') && (
+          {activeTab === 'security' && (
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Lock className="w-4 h-4 text-[#F6821F]" />
@@ -695,7 +716,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
           )}
 
           {/* 4. Edge Cache, SQLite WAL & Auditoria */}
-          {showSection('edge') && (
+          {activeTab === 'edge' && (
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Database className="w-4 h-4 text-[#F6821F]" />
@@ -785,7 +806,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
           )}
 
           {/* 5. Conformidade LGPD & Privacidade */}
-          {showSection('compliance') && (
+          {activeTab === 'compliance' && (
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <ShieldCheck className="w-4 h-4 text-[#F6821F]" />

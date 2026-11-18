@@ -54,7 +54,7 @@ const NAV_ITEMS: Array<{
   { id: 'systems', label: 'Sistemas', group: 'admin', icon: AppWindow },
   { id: 'users', label: 'Usuários', group: 'admin', icon: Users },
   { id: 'rbac', label: 'Permissões', group: 'admin', icon: Shield },
-  { id: 'audit-logs', label: 'Audit Logs', group: 'admin', icon: ScrollText },
+  { id: 'audit-logs', label: 'Auditoria', group: 'admin', icon: ScrollText },
   { id: 'settings', label: 'Configurações', group: 'admin', icon: Settings, adminOnly: true },
   { id: 'idps', label: 'Provedores', group: 'infra', icon: Globe },
   { id: 'graphql', label: 'Infraestrutura', group: 'infra', icon: Code2 },
