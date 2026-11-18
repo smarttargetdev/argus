@@ -349,6 +349,13 @@ CREATE TABLE IF NOT EXISTS kv_store (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS system_settings (
+  setting_key TEXT PRIMARY KEY,
+  setting_value TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT 'system',
+  updated_at TEXT NOT NULL
+);
+
 -- Covering & Composite Indexes for Read-Heavy IAM & GraphQL Batching
 CREATE INDEX IF NOT EXISTS idx_systems_slug ON systems(slug);
 CREATE INDEX IF NOT EXISTS idx_systems_client ON systems(client_id);
@@ -379,6 +386,12 @@ function sha256(val: string): string {
 
 // Batched asynchronous audit log writer to avoid blocking read-heavy paths
 const auditQueue: AuditLogRow[] = [];
+let auditBatchSize = 20;
+
+export function setAuditBatchSize(size: number): void {
+  const normalized = Math.max(1, Math.min(100, Math.floor(size)));
+  auditBatchSize = normalized;
+}
 
 const insertAuditStmt = db.prepare(`
   INSERT INTO audit_logs (
@@ -410,7 +423,7 @@ export function flushAuditQueue(): void {
 export function queueAuditLog(entry: AuditLogRow): void {
   auditQueue.push(entry);
   dbStats.queuedAuditLogs = auditQueue.length;
-  if (auditQueue.length >= 20) {
+  if (auditQueue.length >= auditBatchSize) {
     flushAuditQueue();
   }
 }

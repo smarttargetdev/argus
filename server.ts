@@ -35,12 +35,16 @@ import {
 import { graphqlHandler } from './server/graphql.ts';
 import { recordStructuredAudit, sseTelemetryHandler } from './server/telemetry.ts';
 import { createCloudflareBundleZip, getCloudflareBundleFiles } from './server/cloudflareExport.ts';
+import { getPlatformSettings, getPublicPlatformConfig } from './server/settings.ts';
 
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
+const failedLoginTracker = new Map<string, { count: number; resetAt: number }>();
 
 function getAppUrl(req: express.Request): string {
+  const configuredBase = getPlatformSettings().appBaseUrl;
+  if (configuredBase) return configuredBase.replace(/\/$/, '');
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.headers['x-forwarded-host'] || req.get('host') || `localhost:${PORT}`;
@@ -106,12 +110,20 @@ async function startServer() {
 
   // Health Check
   app.get('/api/health', (_req, res) => {
+    const settings = getPlatformSettings();
     res.json({
       status: 'ok',
       engine: 'sqlite-wal',
       d1Ready: true,
+      environment: settings.executionEnvironment,
+      platformName: settings.platformName,
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Public Runtime Config (Safe subset for Login UI & Session Hooks)
+  app.get('/api/public/config', (_req, res) => {
+    res.json(getPublicPlatformConfig());
   });
 
   // OIDC Discovery & JWKS
@@ -154,6 +166,7 @@ async function startServer() {
       .all();
 
     res.json({
+      platformConfig: getPublicPlatformConfig(),
       systems: systems.map((s) => ({
         id: s.id,
         name: s.name,
@@ -177,6 +190,7 @@ async function startServer() {
   // Primary Login Endpoint (Password -> Conditional 2FA Challenge -> Scoped System JWT)
   app.post('/api/auth/login', async (req, res) => {
     const started = performance.now();
+    const settings = getPlatformSettings();
     const { email, password, systemSlug } = (req.body || {}) as {
       email?: string;
       password?: string;
@@ -184,22 +198,49 @@ async function startServer() {
     };
 
     if (!email || !password) {
-      res.status(400).json({ error: 'E-mail e senha sao obrigatorios.' });
+      res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const failureState = failedLoginTracker.get(normalizedEmail);
+    if (failureState && failureState.resetAt > Date.now() && failureState.count >= settings.maxLoginAttempts) {
+      recordStructuredAudit({
+        actorId: 'anonymous',
+        actorEmail: normalizedEmail,
+        systemSlug: systemSlug || 'global',
+        action: 'AUTH_RATE_LIMIT_EXCEEDED',
+        resourceType: 'session',
+        resourceId: normalizedEmail,
+        status: 'denied',
+        durationMs: performance.now() - started,
+        ip: req.ip,
+        details: { maxLoginAttempts: settings.maxLoginAttempts },
+      });
+      res.status(429).json({
+        error: `Limite de ${settings.maxLoginAttempts} tentativas de login atingido. Aguarde alguns minutos antes de tentar novamente.`,
+      });
       return;
     }
 
     const system = getSystemBySlugOrId(systemSlug);
     if (!system) {
-      res.status(404).json({ error: 'Sistema alvo nao encontrado ou desativado.' });
+      res.status(404).json({ error: 'Sistema alvo não encontrado ou desativado.' });
       return;
     }
 
     dbStats.totalReads += 1;
     const user = db
       .prepare('SELECT * FROM users WHERE email = ?')
-      .get(email.trim().toLowerCase()) as UserRow | undefined;
+      .get(normalizedEmail) as UserRow | undefined;
 
     if (!user || user.status !== 'active' || !verifyPassword(password, user.password_hash)) {
+      const nextCount = failureState && failureState.resetAt > Date.now() ? failureState.count + 1 : 1;
+      failedLoginTracker.set(normalizedEmail, {
+        count: nextCount,
+        resetAt: Date.now() + 5 * 60 * 1000,
+      });
+
       recordStructuredAudit({
         actorId: user?.id || 'anonymous',
         actorEmail: email,
@@ -211,10 +252,13 @@ async function startServer() {
         status: 'denied',
         durationMs: performance.now() - started,
         ip: req.ip,
+        details: { attempt: nextCount, maxAttempts: settings.maxLoginAttempts },
       });
-      res.status(401).json({ error: 'Credenciais invalidas ou conta indisponivel.' });
+      res.status(401).json({ error: 'Credenciais inválidas ou conta indisponível.' });
       return;
     }
+
+    failedLoginTracker.delete(normalizedEmail);
 
     // Ensure user has a binding in target system
     const bindingCount = db
@@ -222,28 +266,30 @@ async function startServer() {
       .get(user.id, system.id) as { cnt: number };
     if (bindingCount.cnt === 0) {
       res.status(403).json({
-        error: `Usuario nao possui vinculo de acesso ao sistema ${system.name}.`,
+        error: `Usuário não possui vínculo de acesso ao sistema ${system.name}.`,
       });
       return;
     }
 
-    // Check 2FA requirement (system requires MFA OR user has active 2FA configured)
+    // Check 2FA requirement (global policy OR system policy OR user has active 2FA configured)
     const availableMethods = resolveAvailableMfaMethods(user, system);
     const mustChallengeMfa =
-      Boolean(system.require_mfa) || Boolean(user.totp_enabled) || (Boolean(user.phone_verified) && user.mfa_preferred_method === 'sms');
+      Boolean(settings.globalRequireMfa) ||
+      Boolean(system.require_mfa) ||
+      Boolean(user.totp_enabled) ||
+      (Boolean(user.phone_verified) && user.mfa_preferred_method === 'sms');
 
     if (mustChallengeMfa) {
       if (availableMethods.length === 0) {
-        // System requires MFA, user hasn't enrolled yet -> allow onboarding token or inform clearly
         res.status(403).json({
-          error: `O sistema ${system.name} exige 2FA obrigatorio. Ative TOTP ou SMS no seu perfil acessando pelo Vektor Core primeiro.`,
+          error: `O sistema ${system.name} exige 2FA obrigatório. Ative TOTP ou SMS no seu perfil acessando pelo ${settings.platformName} Core primeiro.`,
           code: 'MFA_ENROLLMENT_REQUIRED',
         });
         return;
       }
 
       const mfaToken = `mfa_${crypto.randomBytes(24).toString('hex')}`;
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + settings.oauthCodeTtlSeconds * 1000).toISOString();
       db.prepare(
         'INSERT INTO mfa_challenges (token, user_id, system_id, auth_method, expires_at) VALUES (?, ?, ?, ?, ?)'
       ).run(mfaToken, user.id, system.id, 'pwd', expiresAt);
@@ -316,37 +362,109 @@ async function startServer() {
     });
   });
 
-  // Public Self-Service User Registration Disabled (Admin provisioning only)
+  // Self-Service User Registration (Controlled by allowSelfRegistration parameter; disabled by default)
   app.post('/api/auth/register', (req, res) => {
     const started = performance.now();
-    const { email, systemSlug } = (req.body || {}) as {
+    const settings = getPlatformSettings();
+    const { email, displayName, password, systemSlug } = (req.body || {}) as {
       email?: string;
+      displayName?: string;
+      password?: string;
       systemSlug?: string;
     };
 
+    if (!settings.allowSelfRegistration) {
+      recordStructuredAudit({
+        actorId: 'anonymous',
+        actorEmail: email || 'unknown',
+        systemSlug: systemSlug || 'global',
+        action: 'AUTH_SELF_REGISTER_BLOCKED',
+        resourceType: 'user',
+        resourceId: 'self-register',
+        status: 'denied',
+        durationMs: performance.now() - started,
+        ip: req.ip,
+        details: { reason: 'Public user registration is disabled on login' },
+      });
+
+      res.status(403).json({
+        error: 'O registro de novos usuários no login não é permitido. Solicite a criação da conta ao administrador.',
+      });
+      return;
+    }
+
+    if (!email || !password || !displayName) {
+      res.status(400).json({ error: 'E-mail, nome e senha são obrigatórios.' });
+      return;
+    }
+
+    if (password.length < settings.globalPasswordMinLength) {
+      res.status(400).json({
+        error: `A senha deve ter pelo menos ${settings.globalPasswordMinLength} caracteres.`,
+      });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
+    if (exists) {
+      res.status(409).json({ error: 'E-mail já cadastrado.' });
+      return;
+    }
+
+    const system = getSystemBySlugOrId(systemSlug);
+    if (!system) {
+      res.status(404).json({ error: 'Sistema alvo não encontrado.' });
+      return;
+    }
+
+    const defaultRole = db
+      .prepare('SELECT id FROM roles WHERE system_id = ? ORDER BY is_default DESC, created_at ASC LIMIT 1')
+      .get(system.id) as { id: string } | undefined;
+
+    const userId = `usr-${crypto.randomBytes(4).toString('hex')}`;
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO users (
+        id, email, display_name, password_hash, phone_number, phone_verified,
+        mfa_preferred_method, totp_secret_enc, totp_enabled, backup_codes_hash,
+        status, perm_version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, NULL, 0, 'none', NULL, 0, NULL, 'active', 1, ?, ?)
+    `).run(userId, cleanEmail, displayName.trim(), hashPassword(password), now, now);
+
+    if (defaultRole) {
+      db.prepare('INSERT INTO user_system_bindings (id, user_id, system_id, role_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
+        `bnd-${crypto.randomBytes(4).toString('hex')}`,
+        userId,
+        system.id,
+        defaultRole.id,
+        now
+      );
+    }
+    dbStats.totalWrites += defaultRole ? 2 : 1;
+
     recordStructuredAudit({
-      actorId: 'anonymous',
-      actorEmail: email || 'unknown',
-      systemSlug: systemSlug || 'global',
-      action: 'AUTH_SELF_REGISTER_BLOCKED',
+      actorId: userId,
+      actorEmail: cleanEmail,
+      systemId: system.id,
+      systemSlug: system.slug,
+      action: 'AUTH_SELF_REGISTERED',
       resourceType: 'user',
-      resourceId: 'self-register',
-      status: 'denied',
+      resourceId: userId,
+      status: 'success',
       durationMs: performance.now() - started,
       ip: req.ip,
-      details: { reason: 'Public user registration is disabled on login' },
     });
 
-    res.status(403).json({
-      error: 'O registro de novos usuários no login não é permitido. Solicite a criação da conta ao administrador.',
-    });
+    res.status(201).json({ registered: true, userId, email: cleanEmail });
   });
 
   // Dispatch Login SMS OTP
   app.post('/api/auth/mfa/send-sms', (req, res) => {
+    const settings = getPlatformSettings();
     const { mfaToken } = (req.body || {}) as { mfaToken?: string };
     if (!mfaToken) {
-      res.status(400).json({ error: 'mfaToken obrigatorio.' });
+      res.status(400).json({ error: 'mfaToken obrigatório.' });
       return;
     }
 
@@ -355,19 +473,19 @@ async function startServer() {
       .get(mfaToken) as { user_id: string; system_id: string; expires_at: string } | undefined;
 
     if (!challenge || new Date(challenge.expires_at).getTime() < Date.now()) {
-      res.status(401).json({ error: 'Desafio 2FA expirado ou invalido.' });
+      res.status(401).json({ error: 'Desafio 2FA expirado ou inválido.' });
       return;
     }
 
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(challenge.user_id) as UserRow | undefined;
     if (!user || !user.phone_number || !user.phone_verified) {
-      res.status(400).json({ error: 'Telefone verificado nao encontrado para envio de SMS.' });
+      res.status(400).json({ error: 'Telefone verificado não encontrado para envio de SMS.' });
       return;
     }
 
     const code = String(crypto.randomInt(100000, 999999));
     const now = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + settings.smsOtpTtlSeconds * 1000).toISOString();
     db.prepare(
       'INSERT INTO sms_otps (id, user_id, phone_number, code_hash, purpose, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(`sms-${crypto.randomBytes(4).toString('hex')}`, user.id, user.phone_number, sha256Hex(code), 'login', expiresAt, now);
@@ -387,8 +505,8 @@ async function startServer() {
     res.json({
       sent: true,
       maskedPhone: `${user.phone_number.slice(0, 4)}****${user.phone_number.slice(-3)}`,
-      expiresInSeconds: 300,
-      sandboxCodePreview: code,
+      expiresInSeconds: settings.smsOtpTtlSeconds,
+      sandboxCodePreview: settings.smsSandboxPreview ? code : '',
     });
   });
 
@@ -520,6 +638,7 @@ async function startServer() {
   // OAuth 2.0 Authorization Endpoint (PKCE + Conditional 2FA)
   app.post('/api/oauth/authorize', (req, res) => {
     const started = performance.now();
+    const settings = getPlatformSettings();
     const {
       clientId,
       redirectUri,
@@ -539,26 +658,31 @@ async function startServer() {
     };
 
     if (!clientId || !email || !password) {
-      res.status(400).json({ error: 'clientId, email e password sao obrigatorios no fluxo OAuth.' });
+      res.status(400).json({ error: 'clientId, email e password são obrigatórios no fluxo OAuth.' });
+      return;
+    }
+
+    if (settings.pkceRequired && !codeChallenge) {
+      res.status(400).json({ error: 'Política global exige PKCE (codeChallenge) neste fluxo OAuth 2.0.' });
       return;
     }
 
     const system = getSystemBySlugOrId(clientId);
     if (!system) {
-      res.status(404).json({ error: 'Sistema OAuth (client_id) nao encontrado.' });
+      res.status(404).json({ error: 'Sistema OAuth (client_id) não encontrado.' });
       return;
     }
 
     const allowedUris = JSON.parse(system.redirect_uris || '[]') as string[];
     const finalRedirect = redirectUri || allowedUris[0] || 'http://localhost:3000/oauth/sandbox';
     if (redirectUri && allowedUris.length > 0 && !allowedUris.includes(redirectUri)) {
-      res.status(400).json({ error: 'redirect_uri nao autorizada na politica do sistema.' });
+      res.status(400).json({ error: 'redirect_uri não autorizada na política do sistema.' });
       return;
     }
 
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase()) as UserRow | undefined;
     if (!user || user.status !== 'active' || !verifyPassword(password, user.password_hash)) {
-      res.status(401).json({ error: 'Credenciais invalidas para autorizacao OAuth 2.0.' });
+      res.status(401).json({ error: 'Credenciais inválidas para autorização OAuth 2.0.' });
       return;
     }
 
@@ -566,15 +690,18 @@ async function startServer() {
       .prepare('SELECT COUNT(*) as cnt FROM user_system_bindings WHERE user_id = ? AND system_id = ?')
       .get(user.id, system.id) as { cnt: number };
     if (bindingCount.cnt === 0) {
-      res.status(403).json({ error: `Usuario nao autorizado no sistema ${system.name}.` });
+      res.status(403).json({ error: `Usuário não autorizado no sistema ${system.name}.` });
       return;
     }
 
     const code = `ac_${crypto.randomBytes(20).toString('hex')}`;
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + settings.oauthCodeTtlSeconds * 1000).toISOString();
     const availableMethods = resolveAvailableMfaMethods(user, system);
     const mustChallengeMfa =
-      Boolean(system.require_mfa) || Boolean(user.totp_enabled) || (Boolean(user.phone_verified) && user.mfa_preferred_method === 'sms');
+      Boolean(settings.globalRequireMfa) ||
+      Boolean(system.require_mfa) ||
+      Boolean(user.totp_enabled) ||
+      (Boolean(user.phone_verified) && user.mfa_preferred_method === 'sms');
 
     db.prepare(`
       INSERT INTO oauth_codes (
@@ -629,7 +756,7 @@ async function startServer() {
       requiresMfa: false,
       code,
       redirectUri: finalRedirect,
-      expiresIn: 300,
+      expiresIn: settings.oauthCodeTtlSeconds,
     });
   });
 
@@ -757,10 +884,13 @@ async function startServer() {
       return;
     }
 
+    const settings = getPlatformSettings();
     const sysRow = db.prepare('SELECT edge_cache_ttl FROM systems WHERE id = ?').get(jwt.systemId) as
       | { edge_cache_ttl: number }
       | undefined;
-    const effectiveTtl = computeEffectiveCacheTtl(sysRow?.edge_cache_ttl ?? 120, jwt.exp);
+    const effectiveTtl = settings.edgeCacheEnabled
+      ? computeEffectiveCacheTtl(sysRow?.edge_cache_ttl ?? settings.defaultEdgeCacheTtl, jwt.exp)
+      : 0;
     const cacheKey = buildEdgeCacheKey({
       operation: 'oidc:userinfo',
       variablesJson: '{}',
@@ -919,17 +1049,24 @@ async function startServer() {
       return;
     }
 
+    const settings = getPlatformSettings();
     const cleanEmail = externalEmail.trim().toLowerCase();
     let user = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail) as UserRow | undefined;
     const now = new Date().toISOString();
 
     if (!user) {
+      if (!settings.jitProvisioningEnabled) {
+        res.status(403).json({
+          error: 'Provisionamento automático (JIT) para provedores externos está desativado nas configurações globais.',
+        });
+        return;
+      }
       const userId = `usr-${crypto.randomBytes(4).toString('hex')}`;
       const defaultRole = db
         .prepare('SELECT id FROM roles WHERE system_id = ? ORDER BY is_default DESC, created_at ASC LIMIT 1')
         .get(system.id) as { id: string } | undefined;
       if (!defaultRole) {
-        res.status(400).json({ error: 'Sistema nao possui role padrao para provisionamento JIT.' });
+        res.status(400).json({ error: 'Sistema não possui role padrão para provisionamento JIT.' });
         return;
       }
 
@@ -967,11 +1104,14 @@ async function startServer() {
 
     const availableMethods = resolveAvailableMfaMethods(user, system);
     const mustChallengeMfa =
-      Boolean(system.require_mfa) || Boolean(user.totp_enabled) || (Boolean(user.phone_verified) && user.mfa_preferred_method === 'sms');
+      Boolean(settings.globalRequireMfa) ||
+      Boolean(system.require_mfa) ||
+      Boolean(user.totp_enabled) ||
+      (Boolean(user.phone_verified) && user.mfa_preferred_method === 'sms');
 
     if (mustChallengeMfa && availableMethods.length > 0) {
       const mfaToken = `mfa_${crypto.randomBytes(24).toString('hex')}`;
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + settings.oauthCodeTtlSeconds * 1000).toISOString();
       db.prepare(
         'INSERT INTO mfa_challenges (token, user_id, system_id, auth_method, expires_at) VALUES (?, ?, ?, ?, ?)'
       ).run(mfaToken, user.id, system.id, `idp:${providerType}`, expiresAt);

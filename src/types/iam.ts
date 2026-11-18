@@ -204,3 +204,57 @@ export interface AuthSessionState {
     claims: Record<string, unknown>;
   };
 }
+
+export type ExecutionEnvironment = 'Desenvolvimento' | 'Homologação' | 'Produção';
+
+export interface PublicPlatformConfig {
+  executionEnvironment: ExecutionEnvironment;
+  platformName: string;
+  allowSelfRegistration: boolean;
+  sessionWarningSeconds: number;
+  telemetryStreamEnabled: boolean;
+  defaultJwtTtlSeconds: number;
+  defaultSigningAlg: 'RS256' | 'HS256';
+  defaultEdgeCacheTtl: number;
+  defaultPrivacyPolicyVersion: string;
+  pkceRequired: boolean;
+}
+
+export interface PlatformSystemSettings {
+  executionEnvironment: ExecutionEnvironment;
+  platformName: string;
+  jwtIssuer: string;
+  appBaseUrl: string;
+  defaultJwtTtlSeconds: number;
+  defaultSigningAlg: 'RS256' | 'HS256';
+  sessionWarningSeconds: number;
+  oauthCodeTtlSeconds: number;
+  pkceRequired: boolean;
+  allowSelfRegistration: boolean;
+  globalRequireMfa: boolean;
+  globalPasswordMinLength: number;
+  maxLoginAttempts: number;
+  smsOtpTtlSeconds: number;
+  smsSandboxPreview: boolean;
+  jitProvisioningEnabled: boolean;
+  edgeCacheEnabled: boolean;
+  defaultEdgeCacheTtl: number;
+  auditFlushBatchSize: number;
+  auditRetentionDays: number;
+  piiMaskingEnabled: boolean;
+  telemetryStreamEnabled: boolean;
+  defaultPrivacyPolicyVersion: string;
+  requireExplicitConsent: boolean;
+  allowDataPortabilityExport: boolean;
+  allowSelfErasure: boolean;
+  updatedAt: string;
+  updatedBy: string;
+  runtime?: {
+    sqliteJournalMode: string;
+    d1Compatible: boolean;
+    rsaKeyId: string;
+    activeSystemsCount: number;
+    activeUsersCount: number;
+  };
+}
+

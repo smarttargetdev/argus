@@ -428,3 +428,15 @@ Você pode exportar o pacote pronto diretamente pela aba **Infraestrutura** (**B
 
 ### v1.11.0 — Novo Componente `AuditLogs` para Trilha de Auditoria via GraphQL
 - Criação do componente **`AuditLogs`** (`/src/components/AuditLogs.tsx`) substituindo o gerenciador anterior na visão administrativa (**Visão Geral**), com busca textual ampla (incluindo `detailsJson`), filtros por sistema, status, categoria de ação, tipo de recurso, janela de tempo (`1h`, `24h`, `7d`, todos) e limite GraphQL (`50`, `100`, `200`), ordenação por horário/duração, resumo tabular por status, exportação CSV, atualização em tempo real via SSE e modal popup *master/details* com cópia de JSON.
+
+### v1.12.0 — Aba Dedicada "Audit Logs" no Menu de Administração
+- Adição do item **Audit Logs** em `NAV_ITEMS` (`src/App.tsx`) no grupo de Administração GraphQL, renderizando diretamente o componente **`AuditLogs`** no viewport ativo ao selecionar a aba.
+
+### v1.13.0 — Refinamento dos Textos da Tela de Login
+- Atualização da chamada principal e instruções em `AuthGate`: subtítulo alterado para **"Controle de Acesso"**, título principal para **"Identidade Digital"** e descrição para **"Selecione o sistema e informe as credenciais do usuário para validar a identidade."**.
+
+### v1.14.0 — Tela de Configurações do Sistema (Admin-Only), Ambiente de Execução e Painel Único no Login
+- **Configurações do Sistema (`SystemSettings`)**: nova aba **Configurações** restrita exclusivamente ao administrador (`super_admin` no menu lateral, viewport e resolvers GraphQL `systemSettings`, `updateSystemSettings`, `resetSystemSettings`), com persistência em SQLite (`system_settings`) cobrindo todos os parâmetros globais de Ambiente & Plataforma, JWT & OAuth 2.0, Segurança & 2FA, Edge Cache & Auditoria e LGPD & Privacidade.
+- **Ambiente de Execução (`Desenvolvimento` / `Homologação` / `Produção`)**: adicionado parâmetro global inicializado em **Desenvolvimento**; quando definido para **Produção**, o painel **Contas de Demonstração** e o preenchimento automático de credenciais de teste são removidos da tela de login.
+- **Painel Único "Identidade Digital"**: fusão integral do conteúdo de **Entrar no Console IAM** dentro do painel **Identidade Digital** (`AuthGate`), exibindo e-mail, senha, botão de autenticação e provedores externos logo após o seletor **Sistema**.
+

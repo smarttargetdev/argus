@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { dbStats, queueAuditLog, type AuditLogRow } from './db.ts';
 import { hashSubjectForAudit, maskEmail, maskIp } from './cryptoAuth.ts';
+import { getPlatformSettings } from './settings.ts';
 
 const sseClients = new Set<Response>();
 
@@ -19,11 +20,13 @@ export function recordStructuredAudit(params: {
   ip?: string;
   details?: Record<string, unknown>;
 }): AuditLogRow {
+  const settings = getPlatformSettings();
+  const maskPii = settings.piiMaskingEnabled;
   const entry: AuditLogRow = {
     id: `aud_${crypto.randomUUID()}`,
     trace_id: `tr_${crypto.randomBytes(6).toString('hex')}`,
     actor_hash: hashSubjectForAudit(params.actorId),
-    actor_masked: maskEmail(params.actorEmail),
+    actor_masked: maskPii ? maskEmail(params.actorEmail) : params.actorEmail,
     system_id: params.systemId ?? null,
     system_slug: params.systemSlug ?? null,
     action: params.action,
@@ -32,7 +35,7 @@ export function recordStructuredAudit(params: {
     status: params.status,
     cache_status: params.cacheStatus ?? 'BYPASS',
     duration_ms: Number((params.durationMs ?? 0).toFixed(2)),
-    ip_masked: maskIp(params.ip),
+    ip_masked: maskPii ? maskIp(params.ip) : String(params.ip || '0.0.0.0').replace(/^::ffff:/, ''),
     details_json: JSON.stringify(params.details ?? {}),
     created_at: new Date().toISOString(),
   };
@@ -57,12 +60,14 @@ export function recordStructuredAudit(params: {
   );
 
   // Real-time SSE push to connected admin monitors
-  const sseData = `event: audit\ndata: ${JSON.stringify(entry)}\n\n`;
-  for (const client of sseClients) {
-    try {
-      client.write(sseData);
-    } catch {
-      sseClients.delete(client);
+  if (settings.telemetryStreamEnabled) {
+    const sseData = `event: audit\ndata: ${JSON.stringify(entry)}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(sseData);
+      } catch {
+        sseClients.delete(client);
+      }
     }
   }
 

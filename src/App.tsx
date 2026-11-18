@@ -12,24 +12,30 @@ import {
   CheckCircle2,
   Clock,
   X,
+  ScrollText,
+  Settings,
 } from 'lucide-react';
 import { AuthGate } from './components/AuthGate';
 import { OverviewTelemetry } from './components/OverviewTelemetry';
+import { AuditLogs } from './components/AuditLogs';
 import { SystemsManager } from './components/SystemsManager';
 import { UsersManager } from './components/UsersManager';
 import { RbacClaimsManager } from './components/RbacClaimsManager';
 import { IdpAndOAuthSandbox } from './components/IdpAndOAuthSandbox';
 import { GraphqlAndCloudflare } from './components/GraphqlAndCloudflare';
 import { ProfileAndCompliance } from './components/ProfileAndCompliance';
+import { SystemSettings } from './components/SystemSettings';
 import { subscribeDiagnostics } from './lib/graphqlClient';
 import { useSessionExpiration } from './hooks/useSessionExpiration';
-import type { AuthSessionState, DiagnosticHeaders } from './types/iam';
+import type { AuthSessionState, DiagnosticHeaders, PublicPlatformConfig } from './types/iam';
 
 type NavTab =
   | 'overview'
   | 'systems'
   | 'users'
   | 'rbac'
+  | 'audit-logs'
+  | 'settings'
   | 'idps'
   | 'graphql'
   | 'compliance'
@@ -42,11 +48,14 @@ const NAV_ITEMS: Array<{
   label: string;
   group: 'admin' | 'infra' | 'self';
   icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
 }> = [
   { id: 'overview', label: 'Visão Geral', group: 'admin', icon: Activity },
   { id: 'systems', label: 'Sistemas', group: 'admin', icon: AppWindow },
   { id: 'users', label: 'Usuários', group: 'admin', icon: Users },
   { id: 'rbac', label: 'Permissões', group: 'admin', icon: Shield },
+  { id: 'audit-logs', label: 'Audit Logs', group: 'admin', icon: ScrollText },
+  { id: 'settings', label: 'Configurações', group: 'admin', icon: Settings, adminOnly: true },
   { id: 'idps', label: 'Provedores', group: 'infra', icon: Globe },
   { id: 'graphql', label: 'Infraestrutura', group: 'infra', icon: Code2 },
   { id: 'compliance', label: 'Conformidade', group: 'self', icon: FileCheck2 },
@@ -73,6 +82,14 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [lastDiag, setLastDiag] = useState<DiagnosticHeaders | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [publicConfig, setPublicConfig] = useState<PublicPlatformConfig | null>(null);
+
+  useEffect(() => {
+    fetch('/api/public/config')
+      .then((r) => r.json())
+      .then((cfg: PublicPlatformConfig) => setPublicConfig(cfg))
+      .catch(() => {});
+  }, [session?.token]);
 
   useEffect(() => {
     return subscribeDiagnostics((diag) => {
@@ -87,7 +104,8 @@ export default function App() {
 
   const { formattedRemaining, isExpiringSoon, showWarning, dismissWarning } = useSessionExpiration(
     session?.expiresAt ?? null,
-    handleLogout
+    handleLogout,
+    publicConfig?.sessionWarningSeconds ?? 300
   );
 
   const notify = (msg: string) => {
@@ -115,6 +133,8 @@ export default function App() {
     return <AuthGate onAuthenticated={handleAuthenticated} />;
   }
 
+  const isSuperAdmin = session.user.roles.includes('super_admin');
+  const platformName = publicConfig?.platformName || 'Smarties Secure Gate';
   const activeNav = NAV_ITEMS.find((i) => i.id === activeTab);
 
   return (
@@ -126,8 +146,8 @@ export default function App() {
             <div className="w-7 h-7 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F]">
               <Shield className="w-3.5 h-3.5" />
             </div>
-            <span className="font-display text-sm font-semibold tracking-tight text-white whitespace-nowrap">
-              Smarties Secure Gate
+            <span className="font-display text-sm font-semibold tracking-tight text-white whitespace-nowrap truncate">
+              {platformName}
             </span>
           </div>
 
@@ -135,7 +155,7 @@ export default function App() {
             <div>
               <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Administração GraphQL</div>
               <div className="space-y-0.5">
-                {NAV_ITEMS.filter((i) => i.group === 'admin').map((item) => {
+                {NAV_ITEMS.filter((i) => i.group === 'admin' && (!i.adminOnly || isSuperAdmin)).map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
@@ -223,9 +243,17 @@ export default function App() {
         {/* Top Bar (Clean Breadcrumb + Last GraphQL Edge Diagnostic + Session Countdown + Sign Out) */}
         <header className="h-14 px-6 border-b border-slate-800/80 bg-[#090D16] flex items-center justify-between gap-6 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 whitespace-nowrap truncate">
-            <span>Smarties Secure Gate</span>
+            <span>{platformName}</span>
             <span aria-hidden="true">/</span>
             <span className="font-mono text-slate-300">{session.system.slug}</span>
+            {publicConfig?.executionEnvironment && (
+              <>
+                <span aria-hidden="true">/</span>
+                <span className={publicConfig.executionEnvironment === 'Produção' ? 'text-amber-400' : 'text-slate-400'}>
+                  {publicConfig.executionEnvironment}
+                </span>
+              </>
+            )}
             <span aria-hidden="true">/</span>
             <span className="text-white font-medium">{activeNav?.label}</span>
           </div>
@@ -289,6 +317,31 @@ export default function App() {
             <UsersManager token={session.token} currentUserId={session.user.id} onNotify={notify} />
           )}
           {activeTab === 'rbac' && <RbacClaimsManager token={session.token} onNotify={notify} />}
+          {activeTab === 'audit-logs' && (
+            <AuditLogs token={session.token} onNotify={notify} refreshSignal={refreshTick} />
+          )}
+          {activeTab === 'settings' && (
+            <SystemSettings
+              token={session.token}
+              isSuperAdmin={isSuperAdmin}
+              onNotify={notify}
+              onSettingsUpdated={(updated) => {
+                setPublicConfig({
+                  executionEnvironment: updated.executionEnvironment,
+                  platformName: updated.platformName,
+                  allowSelfRegistration: updated.allowSelfRegistration,
+                  sessionWarningSeconds: updated.sessionWarningSeconds,
+                  telemetryStreamEnabled: updated.telemetryStreamEnabled,
+                  defaultJwtTtlSeconds: updated.defaultJwtTtlSeconds,
+                  defaultSigningAlg: updated.defaultSigningAlg,
+                  defaultEdgeCacheTtl: updated.defaultEdgeCacheTtl,
+                  defaultPrivacyPolicyVersion: updated.defaultPrivacyPolicyVersion,
+                  pkceRequired: updated.pkceRequired,
+                });
+                setRefreshTick((t) => t + 1);
+              }}
+            />
+          )}
           {activeTab === 'idps' && <IdpAndOAuthSandbox token={session.token} onNotify={notify} />}
           {activeTab === 'graphql' && <GraphqlAndCloudflare token={session.token} onNotify={notify} />}
           {activeTab === 'compliance' && (

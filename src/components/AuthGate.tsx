@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Shield, KeyRound, Smartphone, Lock, ArrowRight, Globe, AlertCircle, CheckCircle2 } from 'lucide-react';
-import type { AuthSessionState } from '../types/iam';
+import type { AuthSessionState, ExecutionEnvironment, PublicPlatformConfig } from '../types/iam';
 
 interface PublicSystemItem {
   id: string;
@@ -38,9 +38,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const [systems, setSystems] = useState<PublicSystemItem[]>([]);
   const [idps, setIdps] = useState<PublicIdpItem[]>([]);
   const [selectedSlug, setSelectedSlug] = useState('vektor-core');
+  const [platformName, setPlatformName] = useState('Smarties Secure Gate');
+  const [executionEnvironment, setExecutionEnvironment] = useState<ExecutionEnvironment | null>(null);
 
-  const [email, setEmail] = useState('admin@vektor.iam');
-  const [password, setPassword] = useState('Vektor@2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const [mfaPending, setMfaPending] = useState<MfaPendingState | null>(null);
   const [mfaMethod, setMfaMethod] = useState<'totp' | 'sms' | 'backup_code'>('totp');
@@ -48,7 +50,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const [smsPreview, setSmsPreview] = useState<string | null>(null);
 
   const [idpModal, setIdpModal] = useState<{ providerType: string; name: string } | null>(null);
-  const [idpEmail, setIdpEmail] = useState('admin@vektor.iam');
+  const [idpEmail, setIdpEmail] = useState('');
   const [idpName, setIdpName] = useState('Usuário Federado');
 
   const [loading, setLoading] = useState(false);
@@ -57,11 +59,32 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   useEffect(() => {
     fetch('/api/public/systems')
       .then((r) => r.json())
-      .then((data) => {
+      .then((data: {
+        platformConfig?: PublicPlatformConfig;
+        systems?: PublicSystemItem[];
+        identityProviders?: PublicIdpItem[];
+      }) => {
         setSystems(data.systems || []);
         setIdps(data.identityProviders || []);
+        const cfg = data.platformConfig;
+        const env: ExecutionEnvironment = cfg?.executionEnvironment || 'Desenvolvimento';
+        setExecutionEnvironment(env);
+        if (cfg?.platformName) {
+          setPlatformName(cfg.platformName);
+        }
+        if (env === 'Desenvolvimento') {
+          setEmail((curr) => curr || 'admin@vektor.iam');
+          setPassword((curr) => curr || 'Vektor@2026!');
+          setIdpEmail((curr) => curr || 'admin@vektor.iam');
+        } else {
+          setEmail('');
+          setPassword('');
+          setIdpEmail('');
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        setExecutionEnvironment('Desenvolvimento');
+      });
 
     const handlePopupMessage = (ev: MessageEvent) => {
       if (ev.data?.type === 'VEKTOR_IDP_CALLBACK') {
@@ -73,6 +96,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   }, []);
 
   const currentSystem = systems.find((s) => s.slug === selectedSlug);
+  const showDemoPanel = executionEnvironment !== null && executionEnvironment !== 'Produção';
 
   const handleSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +153,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao enviar SMS OTP.');
-      setSmsPreview(data.sandboxCodePreview);
+      setSmsPreview(data.sandboxCodePreview || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao enviar SMS.');
     } finally {
@@ -237,7 +261,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           <div className="w-8 h-8 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F]">
             <Shield className="w-4 h-4" />
           </div>
-          <span className="font-display text-lg font-semibold tracking-tight text-white">Smarties Secure Gate</span>
+          <span className="font-display text-lg font-semibold tracking-tight text-white">{platformName}</span>
         </div>
         <div className="hidden sm:flex items-center gap-3 text-xs text-slate-400">
           <span>OAuth 2.0 / OIDC</span>
@@ -245,119 +269,81 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           <span>SQLite WAL / Cloudflare D1</span>
           <span aria-hidden="true">·</span>
           <span>LGPD & GDPR</span>
+          {executionEnvironment && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className={executionEnvironment === 'Produção' ? 'text-amber-400 font-medium' : 'text-slate-300'}>
+                {executionEnvironment}
+              </span>
+            </>
+          )}
         </div>
       </header>
 
-      <main className="max-w-5xl w-full mx-auto my-auto py-10 grid grid-cols-1 lg:grid-cols-12 gap-10 items-stretch">
-        {/* Left Context Panel */}
-        <div className="lg:col-span-5 flex flex-col justify-between bg-[#111827] border border-slate-800/90 rounded-lg p-7">
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-[#F6821F]">Gerenciamento de Controle de Acesso</p>
-              <h1 className="font-display text-2xl font-semibold text-white leading-tight [text-wrap:balance]">
-                Identidade centralizada, claims em JWT e latência mínima.
-              </h1>
-              <p className="text-sm text-slate-400 leading-relaxed">
-                Selecione o sistema e o usuário para validar a identidade.
-              </p>
-            </div>
-
-            <div className="space-y-3 pt-4 border-t border-slate-800/80">
-              <label className="block text-xs font-medium text-slate-300">
-                Sistema
-              </label>
-              <select
-                value={selectedSlug}
-                onChange={(e) => {
-                  setSelectedSlug(e.target.value);
-                  setMfaPending(null);
-                  setError(null);
-                }}
-                className="w-full bg-[#090D16] border border-slate-700/80 rounded-md px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-[#F6821F]"
-              >
-                {systems.map((sys) => (
-                  <option key={sys.id} value={sys.slug}>
-                    {sys.name} ({sys.slug})
-                  </option>
-                ))}
-              </select>
-
-              {currentSystem && (
-                <div className="pt-2 space-y-2 text-xs text-slate-400">
-                  <div className="flex items-center justify-between">
-                    <span>Assinatura JWT</span>
-                    <span className="font-mono tabular-nums text-slate-200">{currentSystem.signingAlg}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Expiração do Token</span>
-                    <span className="font-mono tabular-nums text-slate-200">{currentSystem.jwtTtlSeconds}s</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Cache de Borda</span>
-                    <span className="font-mono tabular-nums text-slate-200">{currentSystem.edgeCacheTtl}s</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Política 2FA</span>
-                    <span className={currentSystem.requireMfa ? 'text-amber-400 font-medium' : 'text-slate-300'}>
-                      {currentSystem.requireMfa ? 'Obrigatório' : 'Opcional / Perfil'}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="pt-6 mt-6 border-t border-slate-800/80 space-y-2.5">
-            <p className="text-xs font-medium text-slate-300">Contas de Demonstração</p>
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setMfaPending(null);
-                  setEmail('admin@vektor.iam');
-                  setPassword('Vektor@2026!');
-                }}
-                className="text-left px-3 py-2 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
-              >
-                <div className="text-xs font-medium text-slate-200">Administrador Global</div>
-                <div className="text-[11px] font-mono text-slate-400 truncate">admin@vektor.iam · Vektor@2026!</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMfaPending(null);
-                  setEmail('clara.silva@vektor.iam');
-                  setPassword('Clara@2026!');
-                }}
-                className="text-left px-3 py-2 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
-              >
-                <div className="text-xs font-medium text-slate-200">Operadora (2FA SMS Ativo)</div>
-                <div className="text-[11px] font-mono text-slate-400 truncate">clara.silva@vektor.iam · Clara@2026!</div>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Authentication Form / 2FA Gate */}
-        <div className="lg:col-span-7 bg-[#111827] border border-slate-800/90 rounded-lg p-8 flex flex-col justify-center">
+      <main
+        className={
+          showDemoPanel
+            ? 'max-w-5xl w-full mx-auto my-auto py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start'
+            : 'max-w-xl w-full mx-auto my-auto py-10'
+        }
+      >
+        {/* Unified Identidade Digital Panel */}
+        <div
+          className={`${
+            showDemoPanel ? 'lg:col-span-7' : 'w-full'
+          } bg-[#111827] border border-slate-800/90 rounded-lg p-7 sm:p-8 space-y-6`}
+        >
           {!mfaPending ? (
             <>
-              <div className="pb-6 border-b border-slate-800/80">
-                <h2 className="font-display text-xl font-semibold text-white">Entrar no Console IAM</h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Sistema selecionado:{' '}
-                  <span className="text-slate-200 font-medium">{currentSystem?.name || selectedSlug}</span>
+              <div className="space-y-2 pb-5 border-b border-slate-800/80">
+                <p className="text-xs font-medium text-[#F6821F]">Controle de Acesso</p>
+                <h1 className="font-display text-2xl font-semibold text-white leading-tight [text-wrap:balance]">
+                  Identidade Digital
+                </h1>
+                <p className="text-sm text-slate-400 leading-relaxed">
+                  Selecione o sistema e informe as credenciais do usuário para validar a identidade.
                 </p>
               </div>
 
-              {error && (
-                <div className="mt-5 flex items-start gap-2.5 p-3 rounded-md bg-red-950/40 border border-red-800/60 text-xs text-red-200">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <span>{error}</span>
+              <form onSubmit={handleSubmitCredentials} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Sistema</label>
+                  <select
+                    value={selectedSlug}
+                    onChange={(e) => {
+                      setSelectedSlug(e.target.value);
+                      setMfaPending(null);
+                      setError(null);
+                    }}
+                    className="w-full bg-[#090D16] border border-slate-700/80 rounded-md px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-[#F6821F]"
+                  >
+                    {systems.map((sys) => (
+                      <option key={sys.id} value={sys.slug}>
+                        {sys.name} ({sys.slug})
+                      </option>
+                    ))}
+                  </select>
+                  {currentSystem && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-mono tabular-nums text-slate-400">
+                      <span>{currentSystem.signingAlg}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>JWT {currentSystem.jwtTtlSeconds}s</span>
+                      <span aria-hidden="true">·</span>
+                      <span>Cache {currentSystem.edgeCacheTtl}s</span>
+                      <span aria-hidden="true">·</span>
+                      <span className={currentSystem.requireMfa ? 'text-amber-400 font-sans font-medium' : 'font-sans'}>
+                        {currentSystem.requireMfa ? '2FA Obrigatório' : '2FA Opcional'}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
 
-              <form onSubmit={handleSubmitCredentials} className="mt-6 space-y-4">
+                {error && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-md bg-red-950/40 border border-red-800/60 text-xs text-red-200">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <span>{error}</span>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">E-mail corporativo</label>
@@ -393,7 +379,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                 </button>
               </form>
 
-              <div className="mt-7 pt-6 border-t border-slate-800/80">
+              <div className="pt-6 border-t border-slate-800/80">
                 <p className="text-xs font-medium text-slate-400 mb-3">
                   Provedores de Identidade Externos (OAuth 2.0 / OIDC / SAML)
                 </p>
@@ -549,6 +535,80 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
             </div>
           )}
         </div>
+
+        {/* Contas de Demonstração Panel (Hidden when executionEnvironment === 'Produção') */}
+        {showDemoPanel && (
+          <div className="lg:col-span-5 bg-[#111827] border border-slate-800/90 rounded-lg p-7 space-y-5">
+            <div className="space-y-1.5 pb-4 border-b border-slate-800/80">
+              <p className="text-xs font-medium text-[#F6821F]">Ambiente: {executionEnvironment}</p>
+              <h2 className="font-display text-base font-semibold text-white">Contas de Demonstração</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Selecione uma conta abaixo para preencher rapidamente as credenciais de acesso no ambiente de{' '}
+                {executionEnvironment?.toLowerCase()}.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setMfaPending(null);
+                  setError(null);
+                  setEmail('admin@vektor.iam');
+                  setPassword('Vektor@2026!');
+                }}
+                className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
+              >
+                <div className="text-xs font-medium text-slate-200">Administrador Global</div>
+                <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                  admin@vektor.iam · Vektor@2026!
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMfaPending(null);
+                  setError(null);
+                  setEmail('clara.silva@vektor.iam');
+                  setPassword('Clara@2026!');
+                }}
+                className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
+              >
+                <div className="text-xs font-medium text-slate-200">Operadora (2FA SMS Ativo)</div>
+                <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                  clara.silva@vektor.iam · Clara@2026!
+                </div>
+              </button>
+            </div>
+
+            {currentSystem && (
+              <div className="pt-4 border-t border-slate-800/80 space-y-2 text-xs text-slate-400">
+                <div className="flex items-center justify-between">
+                  <span>Sistema Alvo</span>
+                  <span className="font-mono text-slate-200">{currentSystem.slug}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Assinatura JWT</span>
+                  <span className="font-mono tabular-nums text-slate-200">{currentSystem.signingAlg}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Expiração do Token</span>
+                  <span className="font-mono tabular-nums text-slate-200">{currentSystem.jwtTtlSeconds}s</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Cache de Borda</span>
+                  <span className="font-mono tabular-nums text-slate-200">{currentSystem.edgeCacheTtl}s</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Política 2FA</span>
+                  <span className={currentSystem.requireMfa ? 'text-amber-400 font-medium' : 'text-slate-300'}>
+                    {currentSystem.requireMfa ? 'Obrigatório' : 'Opcional / Perfil'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* External IdP Simulation Modal */}
@@ -580,6 +640,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   required
                   value={idpEmail}
                   onChange={(e) => setIdpEmail(e.target.value)}
+                  placeholder="usuario@empresa.com"
                   className="w-full bg-[#090D16] border border-slate-700 rounded-md px-3 py-2 text-sm text-white"
                 />
               </div>
@@ -615,9 +676,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
       )}
 
       <footer className="max-w-6xl w-full mx-auto pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
-        <span>Smarties Secure Gate</span>
+        <span>{platformName}</span>
         <span>Arquitetura Edge SQLite & Cloudflare D1</span>
       </footer>
     </div>
   );
 };
+

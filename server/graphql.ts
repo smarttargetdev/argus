@@ -17,6 +17,7 @@ import {
 import {
   decryptSecret,
   encryptSecret,
+  ensureRsaKeys,
   generateBackupCodes,
   generateTotpEnrollment,
   hashPassword,
@@ -44,6 +45,12 @@ import {
   setEdgeCached,
 } from './edgeCache.ts';
 import { getActiveSseCount, recordStructuredAudit } from './telemetry.ts';
+import {
+  getPlatformSettings,
+  resetPlatformSettings,
+  updatePlatformSettings,
+  type PlatformSettings,
+} from './settings.ts';
 
 const schema = buildSchema(`
   type CustomClaim {
@@ -253,6 +260,75 @@ const schema = buildSchema(`
     message: String!
   }
 
+  type RuntimeSettingsInfo {
+    sqliteJournalMode: String!
+    d1Compatible: Boolean!
+    rsaKeyId: String!
+    activeSystemsCount: Int!
+    activeUsersCount: Int!
+  }
+
+  type SystemSettings {
+    executionEnvironment: String!
+    platformName: String!
+    jwtIssuer: String!
+    appBaseUrl: String!
+    defaultJwtTtlSeconds: Int!
+    defaultSigningAlg: String!
+    sessionWarningSeconds: Int!
+    oauthCodeTtlSeconds: Int!
+    pkceRequired: Boolean!
+    allowSelfRegistration: Boolean!
+    globalRequireMfa: Boolean!
+    globalPasswordMinLength: Int!
+    maxLoginAttempts: Int!
+    smsOtpTtlSeconds: Int!
+    smsSandboxPreview: Boolean!
+    jitProvisioningEnabled: Boolean!
+    edgeCacheEnabled: Boolean!
+    defaultEdgeCacheTtl: Int!
+    auditFlushBatchSize: Int!
+    auditRetentionDays: Int!
+    piiMaskingEnabled: Boolean!
+    telemetryStreamEnabled: Boolean!
+    defaultPrivacyPolicyVersion: String!
+    requireExplicitConsent: Boolean!
+    allowDataPortabilityExport: Boolean!
+    allowSelfErasure: Boolean!
+    updatedAt: String!
+    updatedBy: String!
+    runtime: RuntimeSettingsInfo!
+  }
+
+  input SystemSettingsInput {
+    executionEnvironment: String!
+    platformName: String!
+    jwtIssuer: String!
+    appBaseUrl: String
+    defaultJwtTtlSeconds: Int!
+    defaultSigningAlg: String!
+    sessionWarningSeconds: Int!
+    oauthCodeTtlSeconds: Int!
+    pkceRequired: Boolean!
+    allowSelfRegistration: Boolean!
+    globalRequireMfa: Boolean!
+    globalPasswordMinLength: Int!
+    maxLoginAttempts: Int!
+    smsOtpTtlSeconds: Int!
+    smsSandboxPreview: Boolean!
+    jitProvisioningEnabled: Boolean!
+    edgeCacheEnabled: Boolean!
+    defaultEdgeCacheTtl: Int!
+    auditFlushBatchSize: Int!
+    auditRetentionDays: Int!
+    piiMaskingEnabled: Boolean!
+    telemetryStreamEnabled: Boolean!
+    defaultPrivacyPolicyVersion: String!
+    requireExplicitConsent: Boolean!
+    allowDataPortabilityExport: Boolean!
+    allowSelfErasure: Boolean!
+  }
+
   input SystemInput {
     name: String!
     slug: String!
@@ -326,6 +402,7 @@ const schema = buildSchema(`
     edgeMetrics: EdgeMetrics!
     complianceSummary: ComplianceSummary!
     exportMyDataJson: String!
+    systemSettings: SystemSettings!
   }
 
   type Mutation {
@@ -363,6 +440,9 @@ const schema = buildSchema(`
     recordConsent(systemId: ID!, granted: Boolean!, purposes: [String!]): MutationResult!
     anonymizeUserAccount(userId: ID!): MutationResult!
     purgeEdgeCache(systemId: ID): Int!
+
+    updateSystemSettings(input: SystemSettingsInput!): SystemSettings!
+    resetSystemSettings: SystemSettings!
   }
 `);
 
@@ -642,6 +722,31 @@ function requirePermission(ctx: GraphQLRequestContext, perm: string): VerifiedJw
     throw new Error(`FORBIDDEN: Permissao necessaria (${perm}).`);
   }
   return jwt;
+}
+
+function requireSuperAdmin(ctx: GraphQLRequestContext): VerifiedJwtContext {
+  const jwt = requireAuth(ctx);
+  if (!jwt.roles.includes('super_admin')) {
+    throw new Error('FORBIDDEN: Acesso restrito exclusivamente ao administrador (super_admin).');
+  }
+  return jwt;
+}
+
+async function buildSystemSettingsPayload(settings: PlatformSettings, ctx: GraphQLRequestContext) {
+  ctx.trackRead();
+  const rsa = await ensureRsaKeys();
+  const sysCount = (db.prepare("SELECT COUNT(*) as cnt FROM systems WHERE status = 'active'").get() as { cnt: number }).cnt;
+  const usrCount = (db.prepare("SELECT COUNT(*) as cnt FROM users WHERE status = 'active'").get() as { cnt: number }).cnt;
+  return {
+    ...settings,
+    runtime: {
+      sqliteJournalMode: 'WAL',
+      d1Compatible: true,
+      rsaKeyId: rsa.kid,
+      activeSystemsCount: sysCount,
+      activeUsersCount: usrCount,
+    },
+  };
 }
 
 function mapRole(row: RoleRow, ctx: GraphQLRequestContext) {
@@ -995,6 +1100,10 @@ const rootValue = {
 
   exportMyDataJson: (_args: unknown, ctx: GraphQLRequestContext) => {
     const jwt = requireAuth(ctx);
+    const settings = getPlatformSettings();
+    if (!settings.allowDataPortabilityExport && !jwt.roles.includes('super_admin')) {
+      throw new Error('FORBIDDEN: A exportação de portabilidade JSON pelo titular está desativada pela política global.');
+    }
     ctx.trackRead();
     const user = db.prepare('SELECT id, email, display_name, phone_number, phone_verified, mfa_preferred_method, totp_enabled, status, created_at, updated_at FROM users WHERE id = ?').get(jwt.sub);
     const bindings = db.prepare('SELECT s.name as system, s.slug, r.name as role, usb.created_at FROM user_system_bindings usb JOIN systems s ON s.id = usb.system_id JOIN roles r ON r.id = usb.role_id WHERE usb.user_id = ?').all(jwt.sub);
@@ -1027,9 +1136,15 @@ const rootValue = {
     );
   },
 
+  systemSettings: (_args: unknown, ctx: GraphQLRequestContext) => {
+    requireSuperAdmin(ctx);
+    return buildSystemSettingsPayload(getPlatformSettings(), ctx);
+  },
+
   // ================== MUTATIONS ==================
   createSystem: ({ input }: { input: Record<string, unknown> }, ctx: GraphQLRequestContext) => {
     const jwt = requirePermission(ctx, 'iam:systems:write');
+    const settings = getPlatformSettings();
     const started = performance.now();
     const id = `sys-${crypto.randomBytes(4).toString('hex')}`;
     const clientId = `cid_${String(input.slug).replace(/[^a-z0-9_-]/gi, '_')}_${crypto.randomBytes(3).toString('hex')}`;
@@ -1053,15 +1168,15 @@ const rootValue = {
       JSON.stringify(input.redirectUris || ['http://localhost:3000/oauth/sandbox']),
       JSON.stringify(input.allowedGrants || ['authorization_code', 'password', 'refresh_token']),
       JSON.stringify(input.allowedIdps || ['google', 'github', 'oidc_generic']),
-      Number(input.jwtTtlSeconds || 3600),
-      String(input.signingAlg || 'RS256'),
+      Number(input.jwtTtlSeconds || settings.defaultJwtTtlSeconds),
+      String(input.signingAlg || settings.defaultSigningAlg),
       crypto.randomBytes(32).toString('hex'),
       input.requireMfa ? 1 : 0,
       JSON.stringify(input.allowedMfaMethods || ['totp', 'sms']),
-      Number(input.passwordMinLength || 8),
-      Number(input.edgeCacheTtl ?? 120),
+      Number(input.passwordMinLength || settings.globalPasswordMinLength),
+      Number(input.edgeCacheTtl ?? settings.defaultEdgeCacheTtl),
       1,
-      String(input.privacyPolicyVersion || '2026.1'),
+      String(input.privacyPolicyVersion || settings.defaultPrivacyPolicyVersion),
       String(input.status || 'active'),
       now,
       now
@@ -1218,8 +1333,13 @@ const rootValue = {
 
   createUser: ({ input }: { input: Record<string, unknown> }, ctx: GraphQLRequestContext) => {
     const jwt = requirePermission(ctx, 'iam:users:write');
+    const settings = getPlatformSettings();
     const started = performance.now();
     const email = String(input.email).trim().toLowerCase();
+    const password = String(input.password || '');
+    if (password.length < settings.globalPasswordMinLength) {
+      throw new Error(`WEAK_PASSWORD: A senha deve ter no mínimo ${settings.globalPasswordMinLength} caracteres.`);
+    }
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) throw new Error('CONFLICT: E-mail ja cadastrado.');
 
@@ -1693,12 +1813,13 @@ const rootValue = {
 
   requestSmsSetup: ({ phoneNumber }: { phoneNumber: string }, ctx: GraphQLRequestContext) => {
     const jwt = requireAuth(ctx);
+    const settings = getPlatformSettings();
     const cleanPhone = phoneNumber.trim();
     if (cleanPhone.length < 8) {
       throw new Error('INVALID_PHONE: Informe um numero de telefone valido com DDI/DDD.');
     }
     const code = String(crypto.randomInt(100000, 999999));
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + settings.smsOtpTtlSeconds * 1000).toISOString();
     const now = new Date().toISOString();
 
     db.prepare(
@@ -1723,8 +1844,8 @@ const rootValue = {
     return {
       sent: true,
       maskedPhone,
-      expiresInSeconds: 300,
-      sandboxCodePreview: code,
+      expiresInSeconds: settings.smsOtpTtlSeconds,
+      sandboxCodePreview: settings.smsSandboxPreview ? code : '',
     };
   },
 
@@ -1843,12 +1964,13 @@ const rootValue = {
 
   changePassword: ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }, ctx: GraphQLRequestContext) => {
     const jwt = requireAuth(ctx);
+    const settings = getPlatformSettings();
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(jwt.sub) as UserRow | undefined;
     if (!user || !verifyPassword(currentPassword, user.password_hash)) {
       throw new Error('INVALID_CREDENTIALS: Senha atual incorreta.');
     }
-    if (newPassword.length < 8) {
-      throw new Error('WEAK_PASSWORD: A nova senha deve ter no minimo 8 caracteres.');
+    if (newPassword.length < settings.globalPasswordMinLength) {
+      throw new Error(`WEAK_PASSWORD: A nova senha deve ter no minimo ${settings.globalPasswordMinLength} caracteres.`);
     }
     db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
       hashPassword(newPassword),
@@ -1949,8 +2071,11 @@ const rootValue = {
 
   anonymizeUserAccount: ({ userId }: { userId: string }, ctx: GraphQLRequestContext) => {
     const jwt = requireAuth(ctx);
+    const settings = getPlatformSettings();
     if (jwt.sub !== userId) {
       requirePermission(ctx, 'iam:users:write');
+    } else if (!settings.allowSelfErasure && !jwt.roles.includes('super_admin')) {
+      throw new Error('FORBIDDEN: Solicitação de anonimização direta pelo titular está desativada pela política global.');
     }
     const now = new Date().toISOString();
     const anonHash = sha256Hex(`anon:${userId}:${now}`).slice(0, 12);
@@ -2001,6 +2126,65 @@ const rootValue = {
 
     return purged;
   },
+
+  updateSystemSettings: (
+    { input }: { input: Partial<PlatformSettings> },
+    ctx: GraphQLRequestContext
+  ) => {
+    const jwt = requireSuperAdmin(ctx);
+    const started = performance.now();
+    const prevEnv = getPlatformSettings().executionEnvironment;
+    const updated = updatePlatformSettings(input, jwt.email);
+    purgeAllEdgeCache();
+
+    recordStructuredAudit({
+      actorId: jwt.sub,
+      actorEmail: jwt.email,
+      systemId: jwt.systemId,
+      systemSlug: jwt.sys,
+      action:
+        prevEnv !== updated.executionEnvironment
+          ? 'PLATFORM_ENVIRONMENT_CHANGED'
+          : 'PLATFORM_SETTINGS_UPDATED',
+      resourceType: 'system_settings',
+      resourceId: 'platform_config',
+      status: 'success',
+      durationMs: performance.now() - started,
+      ip: ctx.ip,
+      details: {
+        previousEnvironment: prevEnv,
+        executionEnvironment: updated.executionEnvironment,
+        edgeCacheEnabled: updated.edgeCacheEnabled,
+        globalRequireMfa: updated.globalRequireMfa,
+        allowSelfRegistration: updated.allowSelfRegistration,
+      },
+    });
+
+    return buildSystemSettingsPayload(updated, ctx);
+  },
+
+  resetSystemSettings: (_args: unknown, ctx: GraphQLRequestContext) => {
+    const jwt = requireSuperAdmin(ctx);
+    const started = performance.now();
+    const reset = resetPlatformSettings(jwt.email);
+    purgeAllEdgeCache();
+
+    recordStructuredAudit({
+      actorId: jwt.sub,
+      actorEmail: jwt.email,
+      systemId: jwt.systemId,
+      systemSlug: jwt.sys,
+      action: 'PLATFORM_SETTINGS_RESET',
+      resourceType: 'system_settings',
+      resourceId: 'platform_config',
+      status: 'success',
+      durationMs: performance.now() - started,
+      ip: ctx.ip,
+      details: { executionEnvironment: reset.executionEnvironment },
+    });
+
+    return buildSystemSettingsPayload(reset, ctx);
+  },
 };
 
 export async function graphqlHandler(req: Request, res: Response): Promise<void> {
@@ -2040,10 +2224,13 @@ export async function graphqlHandler(req: Request, res: Response): Promise<void>
     // Let graphql() return syntax error
   }
 
+  const settings = getPlatformSettings();
   const bypassCache =
+    !settings.edgeCacheEnabled ||
     req.headers['x-bypass-cache'] === 'true' ||
     query.includes('edgeMetrics') ||
-    query.includes('exportMyDataJson');
+    query.includes('exportMyDataJson') ||
+    query.includes('systemSettings');
 
   // Distributed Edge Cache Lookup for read queries (respecting JWT expiry & permission version)
   let cacheKey = '';
@@ -2053,7 +2240,7 @@ export async function graphqlHandler(req: Request, res: Response): Promise<void>
     const systemRow = db
       .prepare('SELECT edge_cache_ttl FROM systems WHERE id = ?')
       .get(jwt.systemId) as { edge_cache_ttl: number } | undefined;
-    const policyTtl = systemRow?.edge_cache_ttl ?? 120;
+    const policyTtl = systemRow?.edge_cache_ttl ?? settings.defaultEdgeCacheTtl;
     effectiveTtl = computeEffectiveCacheTtl(policyTtl, jwt.exp);
 
     if (effectiveTtl > 0) {
