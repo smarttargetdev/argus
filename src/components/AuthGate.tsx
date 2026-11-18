@@ -280,19 +280,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         </div>
       </header>
 
-      <main
-        className={
-          showDemoPanel
-            ? 'max-w-5xl w-full mx-auto my-auto py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start'
-            : 'max-w-xl w-full mx-auto my-auto py-10'
-        }
-      >
+      <main className="max-w-xl w-full mx-auto my-auto py-10">
         {/* Unified Identidade Digital Panel */}
-        <div
-          className={`${
-            showDemoPanel ? 'lg:col-span-7' : 'w-full'
-          } bg-[#111827] border border-slate-800/90 rounded-lg p-7 sm:p-8 space-y-6`}
-        >
+        <div className="w-full bg-[#111827] border border-slate-800/90 rounded-lg p-7 sm:p-8 space-y-6">
           {!mfaPending ? (
             <>
               <div className="space-y-2 pb-5 border-b border-slate-800/80">
@@ -319,23 +309,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   >
                     {systems.map((sys) => (
                       <option key={sys.id} value={sys.slug}>
-                        {sys.name} ({sys.slug})
+                        {sys.name}
                       </option>
                     ))}
                   </select>
-                  {currentSystem && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-mono tabular-nums text-slate-400">
-                      <span>{currentSystem.signingAlg}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>JWT {currentSystem.jwtTtlSeconds}s</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Cache {currentSystem.edgeCacheTtl}s</span>
-                      <span aria-hidden="true">·</span>
-                      <span className={currentSystem.requireMfa ? 'text-amber-400 font-sans font-medium' : 'font-sans'}>
-                        {currentSystem.requireMfa ? '2FA Obrigatório' : '2FA Opcional'}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {error && (
@@ -346,7 +323,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                 )}
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">E-mail corporativo</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Usuário</label>
                   <input
                     type="email"
                     required
@@ -374,14 +351,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-2 bg-[#F6821F] hover:bg-[#e27316] disabled:opacity-50 text-slate-950 font-semibold text-sm py-2.5 px-4 rounded-md transition-colors whitespace-nowrap"
                 >
-                  <span>{loading ? 'Autenticando...' : 'Autenticar e Emitir JWT'}</span>
+                  <span>{loading ? 'Autenticando...' : 'Autenticar'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>
 
               <div className="pt-6 border-t border-slate-800/80">
                 <p className="text-xs font-medium text-slate-400 mb-3">
-                  Provedores de Identidade Externos (OAuth 2.0 / OIDC / SAML)
+                  Provedores de Identidade
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {idps
@@ -404,6 +381,116 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                     ))}
                 </div>
               </div>
+
+              <hr className="border-0 border-t border-slate-800/80" />
+
+              <div className="space-y-3">
+                {executionEnvironment && (
+                  <p className="text-xs font-medium text-[#F6821F]">
+                    Ambiente: {executionEnvironment}
+                  </p>
+                )}
+
+                {currentSystem && (
+                  <table className="w-full text-xs border-collapse">
+                    <tbody className="divide-y divide-slate-800/70">
+                      <tr>
+                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                          Sistema Alvo
+                        </th>
+                        <td className="py-2 text-right font-mono text-slate-200">
+                          {currentSystem.slug}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                          Algorítimo de Assinatura
+                        </th>
+                        <td className="py-2 text-right font-mono tabular-nums text-slate-200">
+                          {currentSystem.signingAlg}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                          Expiração do Token
+                        </th>
+                        <td className="py-2 text-right font-mono tabular-nums text-slate-200">
+                          {currentSystem.jwtTtlSeconds}s
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                          Expiração do Cache
+                        </th>
+                        <td className="py-2 text-right font-mono tabular-nums text-slate-200">
+                          {currentSystem.edgeCacheTtl}s
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-400">
+                          Autenticação de 2 Fatores
+                        </th>
+                        <td
+                          className={`py-2 text-right ${
+                            currentSystem.requireMfa ? 'text-amber-400 font-medium' : 'text-slate-300'
+                          }`}
+                        >
+                          {currentSystem.requireMfa ? 'Obrigatório' : 'Opcional / Perfil'}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {showDemoPanel && (
+                <>
+                  <hr className="border-0 border-t border-slate-800/80" />
+
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <h2 className="font-display text-sm font-semibold text-white">Contas Rápidas</h2>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Selecione uma conta abaixo para preencher as credenciais de acesso no ambiente de{' '}
+                        {executionEnvironment}.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMfaPending(null);
+                          setError(null);
+                          setEmail('admin@vektor.iam');
+                          setPassword('Vektor@2026!');
+                        }}
+                        className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
+                      >
+                        <div className="text-xs font-medium text-slate-200">Administrador Global</div>
+                        <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                          admin@vektor.iam · Vektor@2026!
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMfaPending(null);
+                          setError(null);
+                          setEmail('clara.silva@vektor.iam');
+                          setPassword('Clara@2026!');
+                        }}
+                        className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
+                      >
+                        <div className="text-xs font-medium text-slate-200">Operadora (2FA SMS Ativo)</div>
+                        <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                          clara.silva@vektor.iam · Clara@2026!
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           ) : (
             /* Post-Login 2FA Gate */
@@ -535,80 +622,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
             </div>
           )}
         </div>
-
-        {/* Contas de Demonstração Panel (Hidden when executionEnvironment === 'Produção') */}
-        {showDemoPanel && (
-          <div className="lg:col-span-5 bg-[#111827] border border-slate-800/90 rounded-lg p-7 space-y-5">
-            <div className="space-y-1.5 pb-4 border-b border-slate-800/80">
-              <p className="text-xs font-medium text-[#F6821F]">Ambiente: {executionEnvironment}</p>
-              <h2 className="font-display text-base font-semibold text-white">Contas de Demonstração</h2>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Selecione uma conta abaixo para preencher rapidamente as credenciais de acesso no ambiente de{' '}
-                {executionEnvironment?.toLowerCase()}.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setMfaPending(null);
-                  setError(null);
-                  setEmail('admin@vektor.iam');
-                  setPassword('Vektor@2026!');
-                }}
-                className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
-              >
-                <div className="text-xs font-medium text-slate-200">Administrador Global</div>
-                <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                  admin@vektor.iam · Vektor@2026!
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMfaPending(null);
-                  setError(null);
-                  setEmail('clara.silva@vektor.iam');
-                  setPassword('Clara@2026!');
-                }}
-                className="text-left px-3.5 py-3 rounded-md bg-[#090D16] border border-slate-800 hover:border-slate-600 transition-colors"
-              >
-                <div className="text-xs font-medium text-slate-200">Operadora (2FA SMS Ativo)</div>
-                <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                  clara.silva@vektor.iam · Clara@2026!
-                </div>
-              </button>
-            </div>
-
-            {currentSystem && (
-              <div className="pt-4 border-t border-slate-800/80 space-y-2 text-xs text-slate-400">
-                <div className="flex items-center justify-between">
-                  <span>Sistema Alvo</span>
-                  <span className="font-mono text-slate-200">{currentSystem.slug}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Assinatura JWT</span>
-                  <span className="font-mono tabular-nums text-slate-200">{currentSystem.signingAlg}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Expiração do Token</span>
-                  <span className="font-mono tabular-nums text-slate-200">{currentSystem.jwtTtlSeconds}s</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Cache de Borda</span>
-                  <span className="font-mono tabular-nums text-slate-200">{currentSystem.edgeCacheTtl}s</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Política 2FA</span>
-                  <span className={currentSystem.requireMfa ? 'text-amber-400 font-medium' : 'text-slate-300'}>
-                    {currentSystem.requireMfa ? 'Obrigatório' : 'Opcional / Perfil'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </main>
 
       {/* External IdP Simulation Modal */}
@@ -677,7 +690,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
       <footer className="max-w-6xl w-full mx-auto pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
         <span>{platformName}</span>
-        <span>Arquitetura Edge SQLite & Cloudflare D1</span>
+        <span>™》Smart Target, 2026</span>
       </footer>
     </div>
   );

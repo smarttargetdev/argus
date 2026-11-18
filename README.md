@@ -440,3 +440,14 @@ Você pode exportar o pacote pronto diretamente pela aba **Infraestrutura** (**B
 - **Ambiente de Execução (`Desenvolvimento` / `Homologação` / `Produção`)**: adicionado parâmetro global inicializado em **Desenvolvimento**; quando definido para **Produção**, o painel **Contas de Demonstração** e o preenchimento automático de credenciais de teste são removidos da tela de login.
 - **Painel Único "Identidade Digital"**: fusão integral do conteúdo de **Entrar no Console IAM** dentro do painel **Identidade Digital** (`AuthGate`), exibindo e-mail, senha, botão de autenticação e provedores externos logo após o seletor **Sistema**.
 
+### v1.15.0 — Refinamento Completo do Painel Único de Login (`AuthGate`)
+- Remoção do resumo de propriedades imediatamente abaixo do seletor **Sistema**, exibindo os campos **Usuário** e **Senha** e o botão **Autenticar** logo em seguida.
+- Simplificação do título dos provedores externos para **Provedores de Identidade**, seguida de separador horizontal, exibição em laranja do ambiente ativo (`Ambiente: {AMBIENTE}`) e tabela estruturada linha a linha com **Sistema Alvo**, **Algorítimo de Assinatura**, **Expiração do Token**, **Expiração do Cache** e **Autenticação de 2 Fatores**.
+- Inclusão de novo separador horizontal com a seção **Contas Rápidas** (`"Selecione uma conta abaixo para preencher as credenciais de acesso no ambiente de {AMBIENTE}."`) e botões de preenchimento rápido dentro do mesmo painel único (mantida a ocultação automática no ambiente **Produção**).
+
+### v1.16.0 — Ajuste no Combo "Sistema" e Rodapé da Tela de Login
+- Atualização do combo **Sistema** (`AuthGate`) para exibir exclusivamente o nome amigável do sistema, omitindo o slug entre parênteses.
+- Substituição do texto do rodapé da tela de login para **`™》Smart Target, 2026`**.
+
+
+
