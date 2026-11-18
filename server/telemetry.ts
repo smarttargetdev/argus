@@ -1,10 +1,147 @@
 import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
-import { dbStats, queueAuditLog, type AuditLogRow } from './db.ts';
+import { db, dbStats, queueAuditLog, type AuditLogRow } from './db.ts';
 import { hashSubjectForAudit, maskEmail, maskIp } from './cryptoAuth.ts';
 import { getPlatformSettings } from './settings.ts';
 
+export type HealthTransitionStatus = 'healthy' | 'degraded' | 'critical';
+
+export interface SystemHealthEventRow {
+  id: string;
+  previous_status: HealthTransitionStatus | null;
+  new_status: HealthTransitionStatus;
+  avg_latency_ms: number;
+  max_latency_ms: number;
+  sample_count: number;
+  error_count: number;
+  reason: string;
+  created_at: string;
+}
+
 const sseClients = new Set<Response>();
+const HEALTH_WINDOW_SIZE = 50;
+let rollingSamples: Array<{ durationMs: number; status: string }> | null = null;
+let lastPersistedHealthStatus: HealthTransitionStatus | null = null;
+
+function classifyStatus(avgLatencyMs: number): HealthTransitionStatus {
+  if (avgLatencyMs >= 300) return 'critical';
+  if (avgLatencyMs >= 100) return 'degraded';
+  return 'healthy';
+}
+
+function buildTransitionReason(
+  status: HealthTransitionStatus,
+  avgLatencyMs: number,
+  sampleCount: number
+): string {
+  if (status === 'critical') {
+    return `Latência média atingiu ${avgLatencyMs.toFixed(1)}ms (≥ 300ms em ${sampleCount} amostras).`;
+  }
+  if (status === 'degraded') {
+    return `Latência média elevada para ${avgLatencyMs.toFixed(1)}ms (100–299ms em ${sampleCount} amostras).`;
+  }
+  return `Latência média normalizada em ${avgLatencyMs.toFixed(1)}ms (< 100ms em ${sampleCount} amostras).`;
+}
+
+function ensureHealthMonitorInitialized(): void {
+  if (rollingSamples === null) {
+    const recent = db
+      .prepare('SELECT duration_ms, status FROM audit_logs ORDER BY created_at DESC LIMIT ?')
+      .all(HEALTH_WINDOW_SIZE) as Array<{ duration_ms: number; status: string }>;
+    rollingSamples = recent.map((r) => ({
+      durationMs: Number(r.duration_ms || 0),
+      status: r.status,
+    }));
+  }
+  if (lastPersistedHealthStatus === null) {
+    const latest = db
+      .prepare('SELECT new_status FROM system_health_events ORDER BY created_at DESC, rowid DESC LIMIT 1')
+      .get() as { new_status: string } | undefined;
+    if (latest?.new_status === 'healthy' || latest?.new_status === 'degraded' || latest?.new_status === 'critical') {
+      lastPersistedHealthStatus = latest.new_status;
+    }
+  }
+}
+
+export function evaluateSystemHealthTransition(snapshot?: {
+  avgLatencyMs: number;
+  maxLatencyMs: number;
+  sampleCount: number;
+  errorCount: number;
+  status?: HealthTransitionStatus;
+}): SystemHealthEventRow | null {
+  ensureHealthMonitorInitialized();
+
+  let avgLatencyMs: number;
+  let maxLatencyMs: number;
+  let sampleCount: number;
+  let errorCount: number;
+
+  if (snapshot) {
+    avgLatencyMs = Number(snapshot.avgLatencyMs.toFixed(2));
+    maxLatencyMs = Number(snapshot.maxLatencyMs.toFixed(2));
+    sampleCount = snapshot.sampleCount;
+    errorCount = snapshot.errorCount;
+  } else {
+    const window = rollingSamples || [];
+    sampleCount = window.length;
+    if (sampleCount === 0) return null;
+    let total = 0;
+    let maxVal = 0;
+    let errs = 0;
+    for (const s of window) {
+      total += s.durationMs;
+      if (s.durationMs > maxVal) maxVal = s.durationMs;
+      if (s.status === 'error') errs += 1;
+    }
+    avgLatencyMs = Number((total / sampleCount).toFixed(2));
+    maxLatencyMs = Number(maxVal.toFixed(2));
+    errorCount = errs;
+  }
+
+  const nextStatus = snapshot?.status ?? classifyStatus(avgLatencyMs);
+  if (lastPersistedHealthStatus === nextStatus) {
+    return null;
+  }
+
+  const event: SystemHealthEventRow = {
+    id: `hlth_${crypto.randomUUID()}`,
+    previous_status: lastPersistedHealthStatus,
+    new_status: nextStatus,
+    avg_latency_ms: avgLatencyMs,
+    max_latency_ms: maxLatencyMs,
+    sample_count: sampleCount,
+    error_count: errorCount,
+    reason: buildTransitionReason(nextStatus, avgLatencyMs, sampleCount),
+    created_at: new Date().toISOString(),
+  };
+
+  db.prepare(`
+    INSERT INTO system_health_events (
+      id, previous_status, new_status, avg_latency_ms, max_latency_ms,
+      sample_count, error_count, reason, created_at
+    ) VALUES (
+      @id, @previous_status, @new_status, @avg_latency_ms, @max_latency_ms,
+      @sample_count, @error_count, @reason, @created_at
+    )
+  `).run(event);
+  dbStats.totalWrites += 1;
+  lastPersistedHealthStatus = nextStatus;
+
+  const settings = getPlatformSettings();
+  if (settings.telemetryStreamEnabled) {
+    const sseData = `event: health_transition\ndata: ${JSON.stringify(event)}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(sseData);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }
+
+  return event;
+}
 
 export function recordStructuredAudit(params: {
   actorId: string;
@@ -41,6 +178,15 @@ export function recordStructuredAudit(params: {
   };
 
   queueAuditLog(entry);
+
+  ensureHealthMonitorInitialized();
+  if (rollingSamples) {
+    rollingSamples.unshift({ durationMs: entry.duration_ms, status: entry.status });
+    if (rollingSamples.length > HEALTH_WINDOW_SIZE) {
+      rollingSamples.length = HEALTH_WINDOW_SIZE;
+    }
+    evaluateSystemHealthTransition();
+  }
 
   // Structured JSON log to stdout for edge log aggregation
   console.log(

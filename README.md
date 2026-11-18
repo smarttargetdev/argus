@@ -266,19 +266,19 @@ erDiagram
 
 ### Contas de Demonstração Pré-Cadastradas
 
-| Perfil | E-mail | Senha | 2FA Inicial | Papel Principal (`vektor-core`) |
+| Perfil | E-mail | Senha | 2FA Inicial | Papel Principal (`secure-gate`) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Administrador Global** | `admin@vektor.iam` | `Vektor@2026!` | Opcional | `super_admin` (acesso total + `EdgePay` + `Atlas BI`) |
-| **Operadora IAM** | `clara.silva@vektor.iam` | `Clara@2026!` | SMS Ativo (`+55 21 98420-1190`) | `iam_operator` |
-| **Analista** | `rafael.costa@vektor.iam` | `Rafael@2026!` | Inativo | `analytics_viewer` (`Atlas BI`) / `gateway_developer` (`EdgePay`) |
+| **Administrador Global** | `administrator@smarttarget.com.br` | `Vektor@2026!` | Opcional | `super_admin` (acesso total + `EdgePay` + `Atlas Analytics`) |
+| **Operadora IAM** | `operator@smarttarget.com.br` | `Clara@2026!` | SMS Ativo (`+55 21 98420-1190`) | `iam_operator` |
+| **Analista** | `rafael.costa@vektor.iam` | `Rafael@2026!` | Inativo | `analytics_viewer` (`Atlas Analytics`) / `gateway_developer` (`EdgePay`) |
 
 ### Sistemas OAuth 2.0 Iniciais
 
 | Sistema | Slug | Algoritmo / TTL JWT | Edge Cache TTL | Política 2FA |
 | :--- | :--- | :--- | :--- | :--- |
-| **Smarties Secure Gate Core** | `vektor-core` | `RS256` · `3600s` | `120s` | Opcional / Perfil |
-| **EdgePay Gateway** | `edgepay-api` | `RS256` · `900s` | `45s` | **Obrigatório** |
-| **Atlas Analytics Portal** | `atlas-bi` | `HS256` · `7200s` | `300s` | Opcional / Perfil |
+| **Secure Gate** | `secure-gate` | `RS256` · `3600s` | `120s` | Opcional / Perfil |
+| **EdgePay Gateway** | `edgepay-gateway` | `RS256` · `900s` | `45s` | **Obrigatório** |
+| **Atlas Analytics** | `atlas-analytics` | `HS256` · `7200s` | `300s` | Opcional / Perfil |
 
 ---
 

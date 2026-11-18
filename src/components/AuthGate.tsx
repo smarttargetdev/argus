@@ -38,13 +38,13 @@ const QUICK_ACCOUNTS = [
   {
     id: 'admin',
     label: 'Administrador Global',
-    email: 'admin@vektor.iam',
+    email: 'administrator@smarttarget.com.br',
     password: 'Vektor@2026!',
   },
   {
     id: 'clara',
-    label: 'Operadora (2FA SMS Ativo)',
-    email: 'clara.silva@vektor.iam',
+    label: 'Operador do Sistema',
+    email: 'operator@smarttarget.com.br',
     password: 'Clara@2026!',
   },
 ] as const;
@@ -52,7 +52,7 @@ const QUICK_ACCOUNTS = [
 export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const [systems, setSystems] = useState<PublicSystemItem[]>([]);
   const [idps, setIdps] = useState<PublicIdpItem[]>([]);
-  const [selectedSlug, setSelectedSlug] = useState('vektor-core');
+  const [selectedSlug, setSelectedSlug] = useState('secure-gate');
   const [platformName, setPlatformName] = useState('Smarties Secure Gate');
   const [executionEnvironment, setExecutionEnvironment] = useState<ExecutionEnvironment | null>(null);
 
@@ -93,7 +93,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
         systems?: PublicSystemItem[];
         identityProviders?: PublicIdpItem[];
       }) => {
-        setSystems(data.systems || []);
+        const loadedSystems = data.systems || [];
+        setSystems(loadedSystems);
+        if (loadedSystems.length > 0) {
+          setSelectedSlug((curr) =>
+            loadedSystems.some((s) => s.slug === curr) ? curr : loadedSystems[0].slug
+          );
+        }
         setIdps(data.identityProviders || []);
         const cfg = data.platformConfig;
         const env: ExecutionEnvironment = cfg?.executionEnvironment || 'Desenvolvimento';
@@ -102,9 +108,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           setPlatformName(cfg.platformName);
         }
         if (env === 'Desenvolvimento') {
-          setEmail((curr) => curr || 'admin@vektor.iam');
+          setEmail((curr) => curr || 'administrator@smarttarget.com.br');
           setPassword((curr) => curr || 'Vektor@2026!');
-          setIdpEmail((curr) => curr || 'admin@vektor.iam');
+          setIdpEmail((curr) => curr || 'administrator@smarttarget.com.br');
         } else {
           setEmail('');
           setPassword('');

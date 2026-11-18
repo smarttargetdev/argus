@@ -44,7 +44,12 @@ import {
   recordEdgeCacheOutcome,
   setEdgeCached,
 } from './edgeCache.ts';
-import { getActiveSseCount, recordStructuredAudit } from './telemetry.ts';
+import {
+  evaluateSystemHealthTransition,
+  getActiveSseCount,
+  recordStructuredAudit,
+  type SystemHealthEventRow,
+} from './telemetry.ts';
 import {
   getPlatformSettings,
   resetPlatformSettings,
@@ -220,6 +225,13 @@ const schema = buildSchema(`
     activeSseStreams: Int!
   }
 
+  type LatencyTrendBucket {
+    minuteIso: String!
+    avgLatencyMs: Float!
+    maxLatencyMs: Float!
+    sampleCount: Int!
+  }
+
   type SystemHealth {
     status: String!
     avgLatencyMs: Float!
@@ -227,6 +239,19 @@ const schema = buildSchema(`
     sampleCount: Int!
     errorCount: Int!
     measuredAt: String!
+    latencyTrend: [LatencyTrendBucket!]!
+  }
+
+  type SystemHealthEvent {
+    id: ID!
+    previousStatus: String
+    newStatus: String!
+    avgLatencyMs: Float!
+    maxLatencyMs: Float!
+    sampleCount: Int!
+    errorCount: Int!
+    reason: String!
+    createdAt: String!
   }
 
   type ComplianceSummary {
@@ -300,6 +325,7 @@ const schema = buildSchema(`
     auditRetentionDays: Int!
     piiMaskingEnabled: Boolean!
     telemetryStreamEnabled: Boolean!
+    healthAlertSoundEnabled: Boolean!
     defaultPrivacyPolicyVersion: String!
     requireExplicitConsent: Boolean!
     allowDataPortabilityExport: Boolean!
@@ -332,6 +358,7 @@ const schema = buildSchema(`
     auditRetentionDays: Int!
     piiMaskingEnabled: Boolean!
     telemetryStreamEnabled: Boolean!
+    healthAlertSoundEnabled: Boolean
     defaultPrivacyPolicyVersion: String!
     requireExplicitConsent: Boolean!
     allowDataPortabilityExport: Boolean!
@@ -410,6 +437,7 @@ const schema = buildSchema(`
     auditLogs(systemId: ID, action: String, limit: Int): [AuditLog!]!
     edgeMetrics: EdgeMetrics!
     systemHealth(limit: Int): SystemHealth!
+    systemHealthHistory(limit: Int): [SystemHealthEvent!]!
     complianceSummary: ComplianceSummary!
     exportMyDataJson: String!
     systemSettings: SystemSettings!
@@ -1087,6 +1115,51 @@ const rootValue = {
     const status =
       avgLatencyMs >= 300 ? 'critical' : avgLatencyMs >= 100 ? 'degraded' : 'healthy';
 
+    evaluateSystemHealthTransition({
+      avgLatencyMs,
+      maxLatencyMs: Number(maxLatencyMs.toFixed(2)),
+      sampleCount,
+      errorCount,
+      status,
+    });
+
+    const currentMinuteMs = Math.floor(Date.now() / 60000) * 60000;
+    const windowStartIso = new Date(currentMinuteMs - 9 * 60000).toISOString();
+    ctx.trackRead();
+    const trendRows = db
+      .prepare('SELECT duration_ms, created_at FROM audit_logs WHERE created_at >= ? ORDER BY created_at ASC')
+      .all(windowStartIso) as Array<{ duration_ms: number; created_at: string }>;
+
+    const buckets = Array.from({ length: 10 }, (_, idx) => {
+      const startMs = currentMinuteMs - (9 - idx) * 60000;
+      return {
+        startMs,
+        minuteIso: new Date(startMs).toISOString(),
+        sum: 0,
+        maxLatencyMs: 0,
+        sampleCount: 0,
+      };
+    });
+
+    for (const row of trendRows) {
+      const ts = new Date(row.created_at).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const idx = Math.floor((ts - buckets[0].startMs) / 60000);
+      if (idx >= 0 && idx < 10) {
+        const d = Number(row.duration_ms || 0);
+        buckets[idx].sum += d;
+        if (d > buckets[idx].maxLatencyMs) buckets[idx].maxLatencyMs = d;
+        buckets[idx].sampleCount += 1;
+      }
+    }
+
+    const latencyTrend = buckets.map((b) => ({
+      minuteIso: b.minuteIso,
+      avgLatencyMs: b.sampleCount > 0 ? Number((b.sum / b.sampleCount).toFixed(2)) : 0,
+      maxLatencyMs: Number(b.maxLatencyMs.toFixed(2)),
+      sampleCount: b.sampleCount,
+    }));
+
     return {
       status,
       avgLatencyMs,
@@ -1094,7 +1167,29 @@ const rootValue = {
       sampleCount,
       errorCount,
       measuredAt: new Date().toISOString(),
+      latencyTrend,
     };
+  },
+
+  systemHealthHistory: ({ limit }: { limit?: number }, ctx: GraphQLRequestContext) => {
+    requireAuth(ctx);
+    ctx.trackRead();
+    const lim = Math.min(200, Math.max(1, limit ?? 50));
+    const rows = db
+      .prepare('SELECT * FROM system_health_events ORDER BY created_at DESC, rowid DESC LIMIT ?')
+      .all(lim) as SystemHealthEventRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      previousStatus: row.previous_status,
+      newStatus: row.new_status,
+      avgLatencyMs: row.avg_latency_ms,
+      maxLatencyMs: row.max_latency_ms,
+      sampleCount: row.sample_count,
+      errorCount: row.error_count,
+      reason: row.reason,
+      createdAt: row.created_at,
+    }));
   },
 
   complianceSummary: (_args: unknown, ctx: GraphQLRequestContext) => {

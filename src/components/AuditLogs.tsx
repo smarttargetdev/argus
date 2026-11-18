@@ -18,9 +18,41 @@ import type { AuditLog, DiagnosticHeaders, IamSystem } from '../types/iam';
 
 export interface AuditLogsProps {
   token: string;
-  onNotify: (msg: string) => void;
+  onNotify: (msg: string, variant?: 'success' | 'error' | 'warning') => void;
   refreshSignal?: number;
   onLogsUpdated?: (logs: AuditLog[]) => void;
+}
+
+const AUDIT_FILTERS_STORAGE_KEY = 'vektor_audit_filters_v1';
+
+interface PersistedAuditFilters {
+  searchTerm: string;
+  systemFilter: string;
+  statusFilter: StatusFilter;
+  actionFilter: string;
+  resourceFilter: string;
+  timeWindow: TimeWindowFilter;
+  recordLimit: number;
+}
+
+const AUDIT_USERS_QUERY = `
+  query AuditUsersLookup {
+    users(limit: 200) {
+      id
+      displayName
+      email
+    }
+  }
+`;
+
+async function computeAuditActorHash(userId: string): Promise<string> {
+  if (typeof window === 'undefined' || !window.crypto?.subtle) return '';
+  const data = new TextEncoder().encode(`audit:${userId}`);
+  const digest = await window.crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 16);
 }
 
 const AUDIT_LOGS_QUERY = `
@@ -61,26 +93,38 @@ function translateStatus(status: AuditLog['status']): string {
   return 'Erro';
 }
 
+function readPersistedFilters(): Partial<PersistedAuditFilters> {
+  try {
+    const raw = sessionStorage.getItem(AUDIT_FILTERS_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<PersistedAuditFilters>;
+  } catch {
+    return {};
+  }
+}
+
 export const AuditLogs: React.FC<AuditLogsProps> = ({
   token,
   onNotify,
   refreshSignal = 0,
   onLogsUpdated,
 }) => {
+  const initialFilters = useMemo(() => readPersistedFilters(), []);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [systems, setSystems] = useState<IamSystem[]>([]);
+  const [actorDirectory, setActorDirectory] = useState<Record<string, { displayName: string; email: string }>>({});
   const [loading, setLoading] = useState(true);
   const [sseConnected, setSseConnected] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticHeaders | null>(null);
 
-  // Query & Filter State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [systemFilter, setSystemFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [actionFilter, setActionFilter] = useState('');
-  const [resourceFilter, setResourceFilter] = useState('');
-  const [timeWindow, setTimeWindow] = useState<TimeWindowFilter>('all');
-  const [recordLimit, setRecordLimit] = useState<number>(100);
+  // Query & Filter State (persisted across tab switches and exports)
+  const [searchTerm, setSearchTerm] = useState(initialFilters.searchTerm ?? '');
+  const [systemFilter, setSystemFilter] = useState(initialFilters.systemFilter ?? '');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialFilters.statusFilter ?? 'all');
+  const [actionFilter, setActionFilter] = useState(initialFilters.actionFilter ?? '');
+  const [resourceFilter, setResourceFilter] = useState(initialFilters.resourceFilter ?? '');
+  const [timeWindow, setTimeWindow] = useState<TimeWindowFilter>(initialFilters.timeWindow ?? 'all');
+  const [recordLimit, setRecordLimit] = useState<number>(initialFilters.recordLimit ?? 100);
 
   // Sorting State
   const [sortField, setSortField] = useState<SortField>('createdAt');
@@ -89,6 +133,54 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
   // Master/Details Popup State
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const payload: PersistedAuditFilters = {
+        searchTerm,
+        systemFilter,
+        statusFilter,
+        actionFilter,
+        resourceFilter,
+        timeWindow,
+        recordLimit,
+      };
+      sessionStorage.setItem(AUDIT_FILTERS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota issues
+    }
+  }, [searchTerm, systemFilter, statusFilter, actionFilter, resourceFilter, timeWindow, recordLimit]);
+
+  useEffect(() => {
+    let active = true;
+    gqlRequest<{ users: Array<{ id: string; displayName: string; email: string }> }>({
+      token,
+      query: AUDIT_USERS_QUERY,
+      operationName: 'AuditUsersLookup',
+      silentDiagnostics: true,
+    })
+      .then(async ({ data }) => {
+        if (!active) return;
+        const entries = await Promise.all(
+          (data.users || []).map(async (u) => {
+            const hash = await computeAuditActorHash(u.id);
+            return [hash, { displayName: u.displayName, email: u.email }] as const;
+          })
+        );
+        if (!active) return;
+        const nextMap: Record<string, { displayName: string; email: string }> = {};
+        for (const [hash, meta] of entries) {
+          if (hash) nextMap[hash] = meta;
+        }
+        setActorDirectory(nextMap);
+      })
+      .catch(() => {
+        // User may lack iam:users:read; fall back to actorMasked matching
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   const loadAuditTrail = useCallback(
     async (bypassCache = false) => {
@@ -113,7 +205,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
         setDiagnostics(diag);
         onLogsUpdated?.(data.auditLogs || []);
       } catch (err) {
-        onNotify(err instanceof Error ? err.message : 'Erro ao consultar registros de auditoria via GraphQL.');
+        onNotify(err instanceof Error ? err.message : 'Erro ao consultar registros de auditoria via GraphQL.', 'error');
       } finally {
         setLoading(false);
       }
@@ -209,10 +301,13 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
         if (Number.isNaN(ts) || ts < cutoffMs) return false;
       }
       if (!q) return true;
+      const resolvedActor = actorDirectory[log.actorHash];
       return (
         log.action.toLowerCase().includes(q) ||
         log.traceId.toLowerCase().includes(q) ||
         log.actorMasked.toLowerCase().includes(q) ||
+        (resolvedActor?.displayName.toLowerCase().includes(q) ?? false) ||
+        (resolvedActor?.email.toLowerCase().includes(q) ?? false) ||
         log.resourceType.toLowerCase().includes(q) ||
         log.resourceId.toLowerCase().includes(q) ||
         (log.systemSlug || '').toLowerCase().includes(q) ||
@@ -228,7 +323,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
       }
       return (Date.parse(a.createdAt) - Date.parse(b.createdAt)) * mul;
     });
-  }, [logs, searchTerm, statusFilter, systemFilter, actionFilter, resourceFilter, timeWindow, sortField, sortDir]);
+  }, [logs, actorDirectory, searchTerm, statusFilter, systemFilter, actionFilter, resourceFilter, timeWindow, sortField, sortDir]);
 
   const statusSummary = useMemo(() => {
     return filteredLogs.reduce(
@@ -280,6 +375,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
       'systemSlug',
       'resourceType',
       'resourceId',
+      'actorName',
       'actorMasked',
       'ipMasked',
     ].join(',');
@@ -296,13 +392,14 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
         log.systemSlug || 'global',
         log.resourceType,
         log.resourceId,
+        actorDirectory[log.actorHash]?.displayName || '',
         log.actorMasked,
         log.ipMasked,
       ]
         .map(escapeCell)
         .join(',')
     );
-    const csv = [header, ...rows].join('\n');
+    const csv = `\uFEFF${[header, ...rows].join('\n')}`;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -310,7 +407,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
     a.download = `smarties-secure-gate-audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    onNotify(`Exportados ${filteredLogs.length} registros de auditoria em CSV.`);
+    onNotify(`Exportados ${filteredLogs.length} registros de auditoria em CSV.`, 'success');
   };
 
   const handleCopyJson = async (log: AuditLog) => {
@@ -326,7 +423,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
       setCopiedId(log.id);
       window.setTimeout(() => setCopiedId((curr) => (curr === log.id ? null : curr)), 2000);
     } catch {
-      onNotify('Não foi possível copiar o JSON para a área de transferência.');
+      onNotify('Não foi possível copiar o JSON para a área de transferência.', 'error');
     }
   };
 
@@ -403,11 +500,23 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
             <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
+              aria-label="Buscar registros de auditoria por usuário ou ação"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por ação, trace, ator, recurso, IP ou detalhe..."
-              className="w-full bg-[#090D16] border border-slate-700/80 rounded-md pl-8 pr-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-[#F6821F]"
+              placeholder="Buscar por usuário, ação, trace, ator, recurso ou IP..."
+              className="w-full bg-[#090D16] border border-slate-700/80 rounded-md pl-8 pr-8 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-[#F6821F]"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                aria-label="Limpar busca"
+                title="Limpar busca"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           <div className="lg:col-span-2 flex items-center gap-1.5">
@@ -585,7 +694,14 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
                     <div className="text-[11px] text-slate-500 truncate max-w-[140px]">{log.resourceId}</div>
                   </td>
                   <td className="py-2.5 px-4 font-mono text-slate-300">
-                    <div>{log.actorMasked}</div>
+                    <div>
+                      {log.actorMasked}
+                      {actorDirectory[log.actorHash]?.displayName && (
+                        <span className="font-sans text-[11px] text-slate-400 ml-1.5">
+                          ({actorDirectory[log.actorHash].displayName})
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-slate-500">{log.ipMasked}</div>
                   </td>
                   <td className="py-2.5 px-4 font-mono text-slate-300 whitespace-nowrap">

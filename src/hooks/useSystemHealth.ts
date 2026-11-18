@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { gqlRequest } from '../lib/graphqlClient';
+import type { LatencyTrendPoint } from '../types/iam';
 
 export type SystemHealthLevel = 'healthy' | 'degraded' | 'critical' | 'loading';
 
@@ -10,6 +11,7 @@ export interface SystemHealthState {
   maxLatencyMs: number | null;
   sampleCount: number;
   errorCount: number;
+  latencyTrend: LatencyTrendPoint[];
 }
 
 interface RecentAuditSample {
@@ -25,6 +27,14 @@ const AUDIT_HEALTH_QUERY = `
       durationMs
       status
     }
+    systemHealth(limit: $limit) {
+      latencyTrend {
+        minuteIso
+        avgLatencyMs
+        maxLatencyMs
+        sampleCount
+      }
+    }
   }
 `;
 
@@ -36,11 +46,60 @@ const SYSTEM_HEALTH_QUERY = `
       maxLatencyMs
       sampleCount
       errorCount
+      latencyTrend {
+        minuteIso
+        avgLatencyMs
+        maxLatencyMs
+        sampleCount
+      }
     }
   }
 `;
 
 const SAMPLE_WINDOW = 50;
+
+function createEmptyTenMinuteBuckets(nowMs = Date.now()): LatencyTrendPoint[] {
+  const currentMinuteMs = Math.floor(nowMs / 60000) * 60000;
+  return Array.from({ length: 10 }, (_, idx) => ({
+    minuteIso: new Date(currentMinuteMs - (9 - idx) * 60000).toISOString(),
+    avgLatencyMs: 0,
+    maxLatencyMs: 0,
+    sampleCount: 0,
+  }));
+}
+
+function mergeSampleIntoTrend(
+  prevTrend: LatencyTrendPoint[],
+  durationMs: number,
+  createdAtIso?: string
+): LatencyTrendPoint[] {
+  const nowMs = Date.now();
+  const baseBuckets = createEmptyTenMinuteBuckets(nowMs);
+  const existingMap = new Map<string, LatencyTrendPoint>();
+  for (const b of prevTrend) {
+    if (b.minuteIso) existingMap.set(b.minuteIso, b);
+  }
+
+  const nextBuckets = baseBuckets.map((b) => existingMap.get(b.minuteIso) ?? b);
+  const sampleMs = createdAtIso ? new Date(createdAtIso).getTime() : nowMs;
+  const targetMinuteIso = new Date(
+    Math.floor((Number.isFinite(sampleMs) ? sampleMs : nowMs) / 60000) * 60000
+  ).toISOString();
+
+  const idx = nextBuckets.findIndex((b) => b.minuteIso === targetMinuteIso);
+  if (idx >= 0) {
+    const curr = nextBuckets[idx];
+    const nextCount = curr.sampleCount + 1;
+    const totalLatency = curr.avgLatencyMs * curr.sampleCount + durationMs;
+    nextBuckets[idx] = {
+      minuteIso: curr.minuteIso,
+      avgLatencyMs: Number((totalLatency / nextCount).toFixed(2)),
+      maxLatencyMs: Number(Math.max(curr.maxLatencyMs, durationMs).toFixed(2)),
+      sampleCount: nextCount,
+    };
+  }
+  return nextBuckets;
+}
 
 export function classifyLatency(avgLatencyMs: number): {
   level: Exclude<SystemHealthLevel, 'loading'>;
@@ -64,6 +123,8 @@ export function useSystemHealth(params: {
   const { token, canReadAuditLogs, telemetryStreamEnabled = true, refreshSignal = 0 } = params;
 
   const [samples, setSamples] = useState<RecentAuditSample[] | null>(null);
+  const [latencyTrend, setLatencyTrend] = useState<LatencyTrendPoint[]>([]);
+  const seenSampleIdsRef = useRef<Set<string>>(new Set());
   const [fallbackHealth, setFallbackHealth] = useState<{
     avgLatencyMs: number;
     maxLatencyMs: number;
@@ -77,6 +138,7 @@ export function useSystemHealth(params: {
       if (canReadAuditLogs) {
         const { data } = await gqlRequest<{
           auditLogs: Array<{ id: string; durationMs: number; status: string }>;
+          systemHealth?: { latencyTrend?: LatencyTrendPoint[] };
         }>({
           token,
           query: AUDIT_HEALTH_QUERY,
@@ -85,13 +147,16 @@ export function useSystemHealth(params: {
           bypassCache: true,
           silentDiagnostics: true,
         });
-        setSamples(
-          (data.auditLogs || []).map((row) => ({
-            id: row.id,
-            durationMs: Number(row.durationMs || 0),
-            status: row.status,
-          }))
-        );
+        const mapped = (data.auditLogs || []).map((row) => ({
+          id: row.id,
+          durationMs: Number(row.durationMs || 0),
+          status: row.status,
+        }));
+        seenSampleIdsRef.current = new Set(mapped.map((m) => m.id));
+        setSamples(mapped);
+        if (data.systemHealth?.latencyTrend) {
+          setLatencyTrend(data.systemHealth.latencyTrend);
+        }
       } else {
         const { data } = await gqlRequest<{
           systemHealth: {
@@ -99,6 +164,7 @@ export function useSystemHealth(params: {
             maxLatencyMs: number;
             sampleCount: number;
             errorCount: number;
+            latencyTrend: LatencyTrendPoint[];
           };
         }>({
           token,
@@ -109,6 +175,9 @@ export function useSystemHealth(params: {
           silentDiagnostics: true,
         });
         setFallbackHealth(data.systemHealth);
+        if (data.systemHealth.latencyTrend) {
+          setLatencyTrend(data.systemHealth.latencyTrend);
+        }
       }
     } catch {
       // Non-fatal background health check; retains last known measurement
@@ -119,6 +188,8 @@ export function useSystemHealth(params: {
     if (!token) {
       setSamples(null);
       setFallbackHealth(null);
+      setLatencyTrend([]);
+      seenSampleIdsRef.current.clear();
       return;
     }
 
@@ -132,15 +203,29 @@ export function useSystemHealth(params: {
 
     const es = new EventSource('/api/telemetry/stream');
     es.addEventListener('audit', (ev) => {
+      if (!canReadAuditLogs) {
+        void fetchHealth();
+        return;
+      }
       try {
         const raw = JSON.parse((ev as MessageEvent).data) as {
           id?: string;
           duration_ms?: number;
           status?: string;
+          created_at?: string;
         };
+        const sampleId = raw.id || `sse_${Date.now()}`;
+        if (seenSampleIdsRef.current.has(sampleId)) return;
+        seenSampleIdsRef.current.add(sampleId);
+        if (seenSampleIdsRef.current.size > SAMPLE_WINDOW * 4) {
+          const trimmed = Array.from(seenSampleIdsRef.current).slice(-SAMPLE_WINDOW * 2);
+          seenSampleIdsRef.current = new Set(trimmed);
+        }
+
+        const durationMs = Number(raw.duration_ms ?? 0);
         const nextSample: RecentAuditSample = {
-          id: raw.id || `sse_${Date.now()}`,
-          durationMs: Number(raw.duration_ms ?? 0),
+          id: sampleId,
+          durationMs,
           status: raw.status || 'success',
         };
         setSamples((prev) => {
@@ -148,6 +233,7 @@ export function useSystemHealth(params: {
           if (prev.some((item) => item.id === nextSample.id)) return prev;
           return [nextSample, ...prev].slice(0, SAMPLE_WINDOW);
         });
+        setLatencyTrend((prev) => mergeSampleIntoTrend(prev, durationMs, raw.created_at));
       } catch {
         // Ignore malformed SSE payload
       }
@@ -156,7 +242,7 @@ export function useSystemHealth(params: {
     return () => {
       es.close();
     };
-  }, [token, telemetryStreamEnabled]);
+  }, [token, telemetryStreamEnabled, canReadAuditLogs, fetchHealth]);
 
   return useMemo(() => {
     if (samples !== null) {
@@ -169,6 +255,7 @@ export function useSystemHealth(params: {
           maxLatencyMs: 0,
           sampleCount: 0,
           errorCount: 0,
+          latencyTrend,
         };
       }
       let sum = 0;
@@ -188,6 +275,7 @@ export function useSystemHealth(params: {
         maxLatencyMs: Number(maxLatencyMs.toFixed(1)),
         sampleCount,
         errorCount,
+        latencyTrend,
       };
     }
 
@@ -201,6 +289,7 @@ export function useSystemHealth(params: {
         maxLatencyMs: Number(fallbackHealth.maxLatencyMs.toFixed(1)),
         sampleCount: fallbackHealth.sampleCount,
         errorCount: fallbackHealth.errorCount,
+        latencyTrend,
       };
     }
 
@@ -211,6 +300,7 @@ export function useSystemHealth(params: {
       maxLatencyMs: null,
       sampleCount: 0,
       errorCount: 0,
+      latencyTrend,
     };
-  }, [samples, fallbackHealth]);
+  }, [samples, fallbackHealth, latencyTrend]);
 }

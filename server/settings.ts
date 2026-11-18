@@ -25,6 +25,7 @@ export interface PlatformSettings {
   auditRetentionDays: number;
   piiMaskingEnabled: boolean;
   telemetryStreamEnabled: boolean;
+  healthAlertSoundEnabled: boolean;
   defaultPrivacyPolicyVersion: string;
   requireExplicitConsent: boolean;
   allowDataPortabilityExport: boolean;
@@ -56,6 +57,7 @@ const DEFAULT_SETTINGS: PlatformSettings = {
   auditRetentionDays: 90,
   piiMaskingEnabled: true,
   telemetryStreamEnabled: true,
+  healthAlertSoundEnabled: true,
   defaultPrivacyPolicyVersion: '2026.1',
   requireExplicitConsent: true,
   allowDataPortabilityExport: true,
@@ -104,6 +106,7 @@ function normalizeSettings(raw: Partial<PlatformSettings>, updatedBy = 'system')
     auditRetentionDays: clampInt(raw.auditRetentionDays, DEFAULT_SETTINGS.auditRetentionDays, 7, 3650),
     piiMaskingEnabled: Boolean(raw.piiMaskingEnabled ?? DEFAULT_SETTINGS.piiMaskingEnabled),
     telemetryStreamEnabled: Boolean(raw.telemetryStreamEnabled ?? DEFAULT_SETTINGS.telemetryStreamEnabled),
+    healthAlertSoundEnabled: Boolean(raw.healthAlertSoundEnabled ?? DEFAULT_SETTINGS.healthAlertSoundEnabled),
     defaultPrivacyPolicyVersion:
       String(raw.defaultPrivacyPolicyVersion ?? DEFAULT_SETTINGS.defaultPrivacyPolicyVersion).trim() || '2026.1',
     requireExplicitConsent: Boolean(raw.requireExplicitConsent ?? DEFAULT_SETTINGS.requireExplicitConsent),
@@ -189,6 +192,7 @@ export function getPublicPlatformConfig() {
     allowSelfRegistration: s.allowSelfRegistration,
     sessionWarningSeconds: s.sessionWarningSeconds,
     telemetryStreamEnabled: s.telemetryStreamEnabled,
+    healthAlertSoundEnabled: s.healthAlertSoundEnabled,
     defaultJwtTtlSeconds: s.defaultJwtTtlSeconds,
     defaultSigningAlg: s.defaultSigningAlg,
     defaultEdgeCacheTtl: s.defaultEdgeCacheTtl,

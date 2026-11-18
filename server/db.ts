@@ -356,6 +356,18 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS system_health_events (
+  id TEXT PRIMARY KEY,
+  previous_status TEXT,
+  new_status TEXT NOT NULL,
+  avg_latency_ms REAL NOT NULL DEFAULT 0,
+  max_latency_ms REAL NOT NULL DEFAULT 0,
+  sample_count INTEGER NOT NULL DEFAULT 0,
+  error_count INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
 -- Covering & Composite Indexes for Read-Heavy IAM & GraphQL Batching
 CREATE INDEX IF NOT EXISTS idx_systems_slug ON systems(slug);
 CREATE INDEX IF NOT EXISTS idx_systems_client ON systems(client_id);
@@ -370,6 +382,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, revoked_at, ex
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_sys ON audit_logs(system_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_consent_user_sys ON consent_records(user_id, system_id);
+CREATE INDEX IF NOT EXISTS idx_health_events_created ON system_health_events(created_at DESC);
 `;
 
 db.exec(D1_SCHEMA_SQL);
@@ -457,8 +470,8 @@ export function seedInitialData(): void {
 
   insertSystem.run(
     sysCoreId,
-    'Smarties Secure Gate Core',
-    'vektor-core',
+    'Secure Gate',
+    'secure-gate',
     'Painel principal de governanca IAM, emissao de tokens e gestao multi-sistema.',
     'cid_vektor_core_2026',
     sha256('csec_vektor_core_demo_secret'),
@@ -482,7 +495,7 @@ export function seedInitialData(): void {
   insertSystem.run(
     sysPayId,
     'EdgePay Gateway',
-    'edgepay-api',
+    'edgepay-gateway',
     'API financeira de alta criticidade com 2FA obrigatorio e TTL de token reduzido.',
     'cid_edgepay_gw_9001',
     sha256('csec_edgepay_gw_demo_secret'),
@@ -505,8 +518,8 @@ export function seedInitialData(): void {
 
   insertSystem.run(
     sysAtlasId,
-    'Atlas Analytics Portal',
-    'atlas-bi',
+    'Atlas Analytics',
+    'atlas-analytics',
     'Portal analitico distribuido na borda com cache longo e assinatura HS256.',
     'cid_atlas_bi_4420',
     sha256('csec_atlas_bi_demo_secret'),
@@ -677,7 +690,7 @@ export function seedInitialData(): void {
 
   insertUser.run(
     adminId,
-    'admin@vektor.iam',
+    'administrator@smarttarget.com.br',
     'Osvandir Junior',
     hashPasswordSync('Vektor@2026!'),
     '+55 11 99812-4410',
@@ -696,7 +709,7 @@ export function seedInitialData(): void {
 
   insertUser.run(
     claraId,
-    'clara.silva@vektor.iam',
+    'operator@smarttarget.com.br',
     'Clara Silva',
     hashPasswordSync('Clara@2026!'),
     '+55 21 98420-1190',
@@ -757,9 +770,9 @@ export function seedInitialData(): void {
       id: 'aud-seed-1',
       trace_id: 'tr-9a01f2b4',
       actor_hash: sha256(adminId).slice(0, 16),
-      actor_masked: 'ad***@vektor.iam',
+      actor_masked: 'ad***@smarttarget.com.br',
       system_id: sysCoreId,
-      system_slug: 'vektor-core',
+      system_slug: 'secure-gate',
       action: 'SYSTEM_BOOTSTRAP',
       resource_type: 'system',
       resource_id: sysCoreId,
@@ -774,9 +787,9 @@ export function seedInitialData(): void {
       id: 'aud-seed-2',
       trace_id: 'tr-9a01f2c8',
       actor_hash: sha256(adminId).slice(0, 16),
-      actor_masked: 'ad***@vektor.iam',
+      actor_masked: 'ad***@smarttarget.com.br',
       system_id: sysPayId,
-      system_slug: 'edgepay-api',
+      system_slug: 'edgepay-gateway',
       action: 'POLICY_MFA_ENFORCED',
       resource_type: 'policy',
       resource_id: sysPayId,
@@ -792,4 +805,35 @@ export function seedInitialData(): void {
 }
 
 seedInitialData();
-db.prepare("UPDATE systems SET name = 'Smarties Secure Gate Core' WHERE id = 'sys-vektor-core' AND name IN ('Vektor Core Console', 'Smarties Gate Core')").run();
+db.prepare("UPDATE systems SET name = 'Secure Gate' WHERE id = 'sys-vektor-core' AND name IN ('Vektor Core Console', 'Smarties Gate Core', 'Smarties Secure Gate Core')").run();
+db.prepare("UPDATE systems SET slug = 'secure-gate' WHERE id = 'sys-vektor-core' AND slug = 'vektor-core'").run();
+db.prepare("UPDATE systems SET slug = 'edgepay-gateway' WHERE id = 'sys-edgepay-gw' AND slug = 'edgepay-api'").run();
+db.prepare("UPDATE systems SET name = 'Atlas Analytics' WHERE id = 'sys-atlas-bi' AND name = 'Atlas Analytics Portal'").run();
+db.prepare("UPDATE systems SET slug = 'atlas-analytics' WHERE id = 'sys-atlas-bi' AND slug = 'atlas-bi'").run();
+db.prepare("UPDATE audit_logs SET system_slug = 'secure-gate' WHERE system_id = 'sys-vektor-core' AND system_slug = 'vektor-core'").run();
+db.prepare("UPDATE audit_logs SET system_slug = 'edgepay-gateway' WHERE system_id = 'sys-edgepay-gw' AND system_slug = 'edgepay-api'").run();
+db.prepare("UPDATE audit_logs SET system_slug = 'atlas-analytics' WHERE system_id = 'sys-atlas-bi' AND system_slug = 'atlas-bi'").run();
+db.prepare("UPDATE users SET email = 'administrator@smarttarget.com.br' WHERE id = 'usr-admin-01' AND email = 'admin@vektor.iam'").run();
+db.prepare("UPDATE users SET email = 'operator@smarttarget.com.br' WHERE id = 'usr-clara-02' AND email = 'clara.silva@vektor.iam'").run();
+db.prepare("UPDATE audit_logs SET actor_masked = 'ad***@smarttarget.com.br' WHERE actor_masked = 'ad***@vektor.iam'").run();
+db.prepare("UPDATE audit_logs SET actor_masked = 'op***@smarttarget.com.br' WHERE actor_masked = 'cl***@vektor.iam'").run();
+
+const healthEventCount = db.prepare('SELECT COUNT(*) as cnt FROM system_health_events').get() as { cnt: number };
+if (healthEventCount.cnt === 0) {
+  db.prepare(`
+    INSERT INTO system_health_events (
+      id, previous_status, new_status, avg_latency_ms, max_latency_ms,
+      sample_count, error_count, reason, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'hlth-seed-baseline',
+    null,
+    'healthy',
+    1.03,
+    1.42,
+    2,
+    0,
+    'Inicialização da plataforma e monitoramento de latência ativo (< 100ms).',
+    new Date().toISOString()
+  );
+}

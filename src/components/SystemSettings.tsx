@@ -9,9 +9,12 @@ import {
   Server,
   ShieldAlert,
   ShieldCheck,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { playHealthAlertSound } from '../lib/healthAlertAudio';
 import type { ExecutionEnvironment, PlatformSystemSettings } from '../types/iam';
 
 interface SystemSettingsProps {
@@ -48,6 +51,7 @@ const SYSTEM_SETTINGS_QUERY = `
       auditRetentionDays
       piiMaskingEnabled
       telemetryStreamEnabled
+      healthAlertSoundEnabled
       defaultPrivacyPolicyVersion
       requireExplicitConsent
       allowDataPortabilityExport
@@ -90,6 +94,7 @@ const UPDATE_SETTINGS_MUTATION = `
       auditRetentionDays
       piiMaskingEnabled
       telemetryStreamEnabled
+      healthAlertSoundEnabled
       defaultPrivacyPolicyVersion
       requireExplicitConsent
       allowDataPortabilityExport
@@ -132,6 +137,7 @@ const RESET_SETTINGS_MUTATION = `
       auditRetentionDays
       piiMaskingEnabled
       telemetryStreamEnabled
+      healthAlertSoundEnabled
       defaultPrivacyPolicyVersion
       requireExplicitConsent
       allowDataPortabilityExport
@@ -244,6 +250,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
       'auditRetentionDays',
       'piiMaskingEnabled',
       'telemetryStreamEnabled',
+      'healthAlertSoundEnabled',
       'defaultPrivacyPolicyVersion',
       'requireExplicitConsent',
       'allowDataPortabilityExport',
@@ -299,6 +306,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             auditRetentionDays: Number(draft.auditRetentionDays),
             piiMaskingEnabled: draft.piiMaskingEnabled,
             telemetryStreamEnabled: draft.telemetryStreamEnabled,
+            healthAlertSoundEnabled: draft.healthAlertSoundEnabled,
             defaultPrivacyPolicyVersion: draft.defaultPrivacyPolicyVersion,
             requireExplicitConsent: draft.requireExplicitConsent,
             allowDataPortabilityExport: draft.allowDataPortabilityExport,
@@ -801,6 +809,56 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
                   />
                   <span>Broadcast SSE em tempo real ativo</span>
                 </label>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  {draft.healthAlertSoundEnabled ? (
+                    <Volume2 className="w-4 h-4 text-[#F6821F] mt-0.5 shrink-0" />
+                  ) : (
+                    <VolumeX className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                  )}
+                  <div>
+                    <div className="text-xs font-medium text-white">
+                      Notificação sonora de Saúde do Sistema
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Emite um alerta sonoro quando o status mudar para <span className="font-mono text-amber-300">degraded</span>{' '}
+                      (Atenção) ou <span className="font-mono text-red-300">critical</span> (Latência Crítica).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void playHealthAlertSound('degraded')}
+                    disabled={!draft.healthAlertSoundEnabled}
+                    className="px-2.5 py-1 text-[11px] font-medium bg-[#090D16] hover:bg-slate-800 disabled:opacity-40 border border-slate-700 text-slate-200 rounded-md transition-colors"
+                  >
+                    Testar som
+                  </button>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={draft.healthAlertSoundEnabled}
+                    aria-label="Habilitar notificações sonoras quando a saúde do sistema ficar degradada ou crítica"
+                    onClick={() =>
+                      setDraft({ ...draft, healthAlertSoundEnabled: !draft.healthAlertSoundEnabled })
+                    }
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
+                      draft.healthAlertSoundEnabled
+                        ? 'bg-[#F6821F] border-[#F6821F]'
+                        : 'bg-[#090D16] border-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                        draft.healthAlertSoundEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </section>
           )}

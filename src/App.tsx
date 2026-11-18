@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AppWindow,
@@ -16,6 +16,10 @@ import {
   X,
   ScrollText,
   Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { AuthGate } from './components/AuthGate';
 import { OverviewTelemetry } from './components/OverviewTelemetry';
@@ -27,9 +31,11 @@ import { IdpAndOAuthSandbox } from './components/IdpAndOAuthSandbox';
 import { GraphqlAndCloudflare } from './components/GraphqlAndCloudflare';
 import { ProfileAndCompliance } from './components/ProfileAndCompliance';
 import { SystemSettings } from './components/SystemSettings';
+import { LatencySparkline } from './components/LatencySparkline';
 import { subscribeDiagnostics } from './lib/graphqlClient';
+import { playHealthAlertSound, unlockHealthAlertAudio } from './lib/healthAlertAudio';
 import { useSessionExpiration } from './hooks/useSessionExpiration';
-import { useSystemHealth } from './hooks/useSystemHealth';
+import { useSystemHealth, type SystemHealthLevel } from './hooks/useSystemHealth';
 import type { AuthSessionState, DiagnosticHeaders, PublicPlatformConfig } from './types/iam';
 
 type NavTab =
@@ -46,24 +52,43 @@ type NavTab =
 
 const SESSION_STORAGE_KEY = 'vektor_iam_session_v1';
 
+type ToastVariant = 'success' | 'error' | 'warning';
+
+interface ToastState {
+  id: number;
+  message: string;
+  variant: ToastVariant;
+}
+
 const NAV_ITEMS: Array<{
   id: NavTab;
   label: string;
   group: 'admin' | 'infra' | 'self';
   icon: React.ComponentType<{ className?: string }>;
+  shortcut: string;
   adminOnly?: boolean;
 }> = [
-  { id: 'overview', label: 'Visão Geral', group: 'admin', icon: Activity },
-  { id: 'systems', label: 'Sistemas', group: 'admin', icon: AppWindow },
-  { id: 'users', label: 'Usuários', group: 'admin', icon: Users },
-  { id: 'rbac', label: 'Permissões', group: 'admin', icon: Shield },
-  { id: 'audit-logs', label: 'Auditoria', group: 'admin', icon: ScrollText },
-  { id: 'settings', label: 'Configurações', group: 'admin', icon: Settings, adminOnly: true },
-  { id: 'idps', label: 'Provedores', group: 'infra', icon: Globe },
-  { id: 'graphql', label: 'Infraestrutura', group: 'infra', icon: Code2 },
-  { id: 'compliance', label: 'Conformidade', group: 'self', icon: FileCheck2 },
-  { id: 'profile', label: 'Perfil', group: 'self', icon: UserCircle2 },
+  { id: 'overview', label: 'Visão Geral', group: 'admin', icon: Activity, shortcut: 'o' },
+  { id: 'systems', label: 'Sistemas', group: 'admin', icon: AppWindow, shortcut: 's' },
+  { id: 'users', label: 'Usuários', group: 'admin', icon: Users, shortcut: 'u' },
+  { id: 'rbac', label: 'Permissões', group: 'admin', icon: Shield, shortcut: 'r' },
+  { id: 'audit-logs', label: 'Auditoria', group: 'admin', icon: ScrollText, shortcut: 'a' },
+  { id: 'settings', label: 'Configurações', group: 'admin', icon: Settings, shortcut: 'c', adminOnly: true },
+  { id: 'idps', label: 'Provedores', group: 'infra', icon: Globe, shortcut: 'i' },
+  { id: 'graphql', label: 'Infraestrutura', group: 'infra', icon: Code2, shortcut: 'f' },
+  { id: 'compliance', label: 'Conformidade', group: 'self', icon: FileCheck2, shortcut: 'l' },
+  { id: 'profile', label: 'Perfil', group: 'self', icon: UserCircle2, shortcut: 'p' },
 ];
+
+function inferToastVariant(message: string): ToastVariant {
+  if (/erro|falha|inválid|invalido|não foi possível|sem permissão|bloquead|negad|expirad/i.test(message)) {
+    return 'error';
+  }
+  if (/alerta|aviso|aguardando|desativad|revogad|atenção|anonimizad/i.test(message)) {
+    return 'warning';
+  }
+  return 'success';
+}
 
 export default function App() {
   const [session, setSession] = useState<AuthSessionState | null>(() => {
@@ -82,10 +107,15 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
-  const [toast, setToast] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isExpandedView, setIsExpandedView] = useState(false);
+  const [shortcutChordPending, setShortcutChordPending] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [lastDiag, setLastDiag] = useState<DiagnosticHeaders | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [publicConfig, setPublicConfig] = useState<PublicPlatformConfig | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const chordTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     fetch('/api/public/config')
@@ -124,16 +154,127 @@ export default function App() {
     refreshSignal: refreshTick,
   });
 
-  const notify = (msg: string) => {
-    if (msg === 'UNAUTHENTICATED') {
-      handleLogout();
+  const prevHealthLevelRef = useRef<SystemHealthLevel | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    const handleUnlock = () => unlockHealthAlertAudio();
+    window.addEventListener('pointerdown', handleUnlock, { once: true });
+    window.addEventListener('keydown', handleUnlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleUnlock);
+      window.removeEventListener('keydown', handleUnlock);
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) {
+      prevHealthLevelRef.current = null;
       return;
     }
-    setToast(msg);
-    window.setTimeout(() => {
-      setToast((curr) => (curr === msg ? null : curr));
-    }, 4500);
-  };
+    const prevLevel = prevHealthLevelRef.current;
+    const nextLevel = systemHealth.level;
+    prevHealthLevelRef.current = nextLevel;
+
+    const soundEnabled = publicConfig?.healthAlertSoundEnabled ?? true;
+    if (
+      soundEnabled &&
+      prevLevel !== null &&
+      prevLevel !== nextLevel &&
+      (nextLevel === 'critical' || nextLevel === 'degraded')
+    ) {
+      void playHealthAlertSound(nextLevel);
+    }
+  }, [session, systemHealth.level, publicConfig?.healthAlertSoundEnabled]);
+
+  const notify = useCallback(
+    (msg: string, variant?: ToastVariant) => {
+      if (msg === 'UNAUTHENTICATED') {
+        handleLogout();
+        return;
+      }
+      const nextToast: ToastState = {
+        id: Date.now(),
+        message: msg,
+        variant: variant ?? inferToastVariant(msg),
+      };
+      setToast(nextToast);
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast((curr) => (curr?.id === nextToast.id ? null : curr));
+        toastTimerRef.current = null;
+      }, 4500);
+    },
+    [handleLogout]
+  );
+
+  // Global keyboard shortcuts: 'g' followed by tab key (e.g. 'g' -> 'o' for Visão Geral, 'g' -> 's' for Sistemas)
+  useEffect(() => {
+    if (!session) return;
+
+    const isSuperAdminUser = session.user.roles.includes('super_admin');
+
+    const clearChord = () => {
+      setShortcutChordPending(false);
+      if (chordTimerRef.current !== null) {
+        window.clearTimeout(chordTimerRef.current);
+        chordTimerRef.current = null;
+      }
+    };
+
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+
+      const target = ev.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const key = ev.key.toLowerCase();
+
+      if (key === 'escape') {
+        clearChord();
+        return;
+      }
+
+      if (shortcutChordPending) {
+        const matched = NAV_ITEMS.find(
+          (item) => item.shortcut === key && (!item.adminOnly || isSuperAdminUser)
+        );
+        clearChord();
+        if (matched) {
+          ev.preventDefault();
+          setActiveTab(matched.id);
+        }
+        return;
+      }
+
+      if (key === 'g') {
+        ev.preventDefault();
+        setShortcutChordPending(true);
+        if (chordTimerRef.current !== null) {
+          window.clearTimeout(chordTimerRef.current);
+        }
+        chordTimerRef.current = window.setTimeout(() => {
+          setShortcutChordPending(false);
+          chordTimerRef.current = null;
+        }, 1500);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [session, shortcutChordPending]);
 
   const handleAuthenticated = (nextSession: AuthSessionState) => {
     setSession(nextSession);
@@ -155,104 +296,175 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#090D16] text-slate-100 flex">
-      {/* Fixed Sidebar (248px) */}
-      <aside className="w-[248px] shrink-0 bg-[#0D131F] border-r border-slate-800/80 flex flex-col justify-between">
-        <div>
-          <div className="h-14 px-5 border-b border-slate-800/80 flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F]">
-              <Shield className="w-3.5 h-3.5" />
+      {/* Collapsible Sidebar (hidden in Expanded View) */}
+      {!isExpandedView && (
+        <aside
+          className={`${
+            isSidebarCollapsed ? 'w-16' : 'w-[248px]'
+          } shrink-0 bg-[#0D131F] border-r border-slate-800/80 flex flex-col justify-between transition-all duration-200`}
+        >
+          <div>
+            <div
+              className={`h-14 border-b border-slate-800/80 flex items-center ${
+                isSidebarCollapsed ? 'px-2 justify-center' : 'px-4 justify-between gap-2'
+              }`}
+            >
+              {!isSidebarCollapsed && (
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F] shrink-0">
+                    <Shield className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="font-display text-sm font-semibold tracking-tight text-white whitespace-nowrap truncate">
+                    {platformName}
+                  </span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+                aria-label={isSidebarCollapsed ? 'Expandir barra lateral' : 'Colapsar barra lateral'}
+                title={isSidebarCollapsed ? 'Expandir barra lateral' : 'Colapsar barra lateral'}
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors shrink-0"
+              >
+                {isSidebarCollapsed ? (
+                  <PanelLeftOpen className="w-4 h-4" />
+                ) : (
+                  <PanelLeftClose className="w-4 h-4" />
+                )}
+              </button>
             </div>
-            <span className="font-display text-sm font-semibold tracking-tight text-white whitespace-nowrap truncate">
-              {platformName}
-            </span>
+
+            <nav className={`${isSidebarCollapsed ? 'p-2 space-y-3' : 'p-3 space-y-5'}`}>
+              <div>
+                {!isSidebarCollapsed && (
+                  <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Administração GraphQL</div>
+                )}
+                <div className="space-y-0.5">
+                  {NAV_ITEMS.filter((i) => i.group === 'admin' && (!i.adminOnly || isSuperAdmin)).map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveTab(item.id)}
+                        title={`${item.label} (g ${item.shortcut})`}
+                        aria-label={item.label}
+                        className={`w-full flex items-center ${
+                          isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-between gap-2 px-2.5 py-2'
+                        } rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                          isActive
+                            ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-400'}`} />
+                          {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                        </span>
+                        {!isSidebarCollapsed && (
+                          <span className="text-[10px] font-mono text-slate-600 shrink-0">g {item.shortcut}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className={isSidebarCollapsed ? 'border-t border-slate-800/70 pt-3' : ''}>
+                {!isSidebarCollapsed && (
+                  <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Borda, OAuth & D1</div>
+                )}
+                <div className="space-y-0.5">
+                  {NAV_ITEMS.filter((i) => i.group === 'infra').map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveTab(item.id)}
+                        title={`${item.label} (g ${item.shortcut})`}
+                        aria-label={item.label}
+                        className={`w-full flex items-center ${
+                          isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-between gap-2 px-2.5 py-2'
+                        } rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                          isActive
+                            ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-400'}`} />
+                          {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                        </span>
+                        {!isSidebarCollapsed && (
+                          <span className="text-[10px] font-mono text-slate-600 shrink-0">g {item.shortcut}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className={isSidebarCollapsed ? 'border-t border-slate-800/70 pt-3' : ''}>
+                {!isSidebarCollapsed && (
+                  <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Titular & Privacidade</div>
+                )}
+                <div className="space-y-0.5">
+                  {NAV_ITEMS.filter((i) => i.group === 'self').map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveTab(item.id)}
+                        title={`${item.label} (g ${item.shortcut})`}
+                        aria-label={item.label}
+                        className={`w-full flex items-center ${
+                          isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-between gap-2 px-2.5 py-2'
+                        } rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                          isActive
+                            ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-400'}`} />
+                          {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                        </span>
+                        {!isSidebarCollapsed && (
+                          <span className="text-[10px] font-mono text-slate-600 shrink-0">g {item.shortcut}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </nav>
           </div>
 
-          <nav className="p-3 space-y-5">
-            <div>
-              <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Administração GraphQL</div>
-              <div className="space-y-0.5">
-                {NAV_ITEMS.filter((i) => i.group === 'admin' && (!i.adminOnly || isSuperAdmin)).map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                        isActive
-                          ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
-                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
-                      }`}
-                    >
-                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-400'}`} />
-                      <span className="truncate">{item.label}</span>
-                    </button>
-                  );
-                })}
+          {isSidebarCollapsed ? (
+            <div
+              className="p-3 border-t border-slate-800/80 flex items-center justify-center"
+              title={`${session.user.displayName} (${session.user.email})`}
+            >
+              <div className="w-8 h-8 rounded-md bg-slate-800/80 border border-slate-700/80 flex items-center justify-center text-xs font-semibold text-slate-200 uppercase">
+                {(session.user.displayName || session.user.email).slice(0, 2)}
               </div>
             </div>
-
-            <div>
-              <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Borda, OAuth & D1</div>
-              <div className="space-y-0.5">
-                {NAV_ITEMS.filter((i) => i.group === 'infra').map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                        isActive
-                          ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
-                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
-                      }`}
-                    >
-                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-400'}`} />
-                      <span className="truncate">{item.label}</span>
-                    </button>
-                  );
-                })}
+          ) : (
+            <div className="p-4 border-t border-slate-800/80 space-y-2 text-[11px]">
+              <div className="text-slate-200 font-medium truncate">{session.user.displayName}</div>
+              <div className="font-mono text-slate-400 truncate">{session.user.email}</div>
+              <div className="font-mono text-slate-500 truncate">
+                {session.system.slug} · {session.user.roles.join(', ') || 'member'}
               </div>
             </div>
-
-            <div>
-              <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-500">Titular & Privacidade</div>
-              <div className="space-y-0.5">
-                {NAV_ITEMS.filter((i) => i.group === 'self').map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                        isActive
-                          ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
-                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
-                      }`}
-                    >
-                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#F6821F]' : 'text-slate-400'}`} />
-                      <span className="truncate">{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </nav>
-        </div>
-
-        <div className="p-4 border-t border-slate-800/80 space-y-2 text-[11px]">
-          <div className="text-slate-200 font-medium truncate">{session.user.displayName}</div>
-          <div className="font-mono text-slate-400 truncate">{session.user.email}</div>
-          <div className="font-mono text-slate-500 truncate">
-            {session.system.slug} · {session.user.roles.join(', ') || 'member'}
-          </div>
-        </div>
-      </aside>
+          )}
+        </aside>
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 flex flex-col">
@@ -274,7 +486,35 @@ export default function App() {
             <span className="text-white font-medium">{activeNav?.label}</span>
           </div>
 
-          <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
+            {shortcutChordPending && (
+              <span className="px-2 py-0.5 rounded bg-[#F6821F]/15 border border-[#F6821F]/50 text-[11px] font-mono text-[#F6821F] whitespace-nowrap">
+                g + …
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsExpandedView((prev) => !prev)}
+              aria-pressed={isExpandedView}
+              title={
+                isExpandedView
+                  ? 'Restaurar sidebar e alinhamento padrão'
+                  : 'Remover sidebar e centralizar área de trabalho'
+              }
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 ${
+                isExpandedView
+                  ? 'bg-[#F6821F]/15 border-[#F6821F]/50 text-white'
+                  : 'bg-[#111827] hover:bg-slate-800 border-slate-700/80 text-slate-200'
+              }`}
+            >
+              {isExpandedView ? (
+                <Minimize2 className="w-3.5 h-3.5 text-[#F6821F]" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span>{isExpandedView ? 'Restaurar Visualização' : 'Expandir Visualização'}</span>
+            </button>
+
             {lastDiag && (
               <div className="hidden xl:flex items-center gap-2 text-[11px] font-mono tabular-nums text-slate-400">
                 <span className={lastDiag.cacheStatus === 'HIT' ? 'text-emerald-400' : 'text-amber-400'}>
@@ -296,10 +536,12 @@ export default function App() {
               }`}
               title={
                 systemHealth.avgLatencyMs !== null
-                  ? `Saúde do Sistema: ${systemHealth.label} · Latência média: ${systemHealth.avgLatencyMs.toFixed(1)}ms (${systemHealth.sampleCount} logs recentes, máx ${systemHealth.maxLatencyMs?.toFixed(1) ?? '0.0'}ms). Faixas: Verde < 100ms · Amarelo 100–299ms · Vermelho ≥ 300ms.`
+                  ? `Saúde do Sistema: ${systemHealth.label} · Latência média: ${systemHealth.avgLatencyMs.toFixed(1)}ms (${systemHealth.sampleCount} logs recentes, máx ${systemHealth.maxLatencyMs?.toFixed(1) ?? '0.0'}ms). Tendência últimos 10 min: máx ${(
+                      systemHealth.latencyTrend.reduce((acc, p) => Math.max(acc, p.avgLatencyMs), 0)
+                    ).toFixed(1)}ms. Faixas: Verde < 100ms · Amarelo 100–299ms · Vermelho ≥ 300ms.`
                   : 'Calculando saúde do sistema pelos logs de auditoria recentes...'
               }
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] whitespace-nowrap ${
+              className={`hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md border text-[11px] whitespace-nowrap ${
                 systemHealth.level === 'critical'
                   ? 'bg-red-950/35 border-red-800/60 text-red-200'
                   : systemHealth.level === 'degraded'
@@ -319,6 +561,7 @@ export default function App() {
                 <Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               )}
               <span className="font-medium">Saúde do Sistema</span>
+              <LatencySparkline points={systemHealth.latencyTrend} level={systemHealth.level} />
               {systemHealth.avgLatencyMs !== null && (
                 <span
                   className={`font-mono tabular-nums ${
@@ -355,19 +598,42 @@ export default function App() {
 
         {/* Notification Banner */}
         {toast && (
-          <div className="mx-6 mt-4 px-4 py-2.5 rounded-md bg-[#111827] border border-[#F6821F]/50 flex items-center justify-between gap-3 text-xs text-slate-100">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[#F6821F] shrink-0" />
-              <span>{toast}</span>
+          <div
+            role="alert"
+            aria-live="polite"
+            className={`mt-4 px-4 py-2.5 rounded-md border flex items-center justify-between gap-3 text-xs ${
+              isExpandedView ? 'mx-auto max-w-[1312px] w-[calc(100%-3rem)]' : 'mx-6'
+            } ${
+              toast.variant === 'error'
+                ? 'bg-red-950/60 border-red-700/70 text-red-100'
+                : toast.variant === 'warning'
+                  ? 'bg-amber-950/60 border-amber-600/70 text-amber-100'
+                  : 'bg-emerald-950/60 border-emerald-700/70 text-emerald-100'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              {toast.variant === 'error' ? (
+                <AlertOctagon className="w-4 h-4 text-red-400 shrink-0" />
+              ) : toast.variant === 'warning' ? (
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              )}
+              <span className="truncate">{toast.message}</span>
             </div>
-            <button type="button" onClick={() => setToast(null)} className="text-slate-400 hover:text-white">
-              Fechar
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              aria-label="Fechar notificação"
+              className="text-slate-300 hover:text-white p-0.5 shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
         {/* Active Viewport */}
-        <main className="flex-1 p-6 max-w-[1360px] w-full">
+        <main className={`flex-1 p-6 max-w-[1360px] w-full ${isExpandedView ? 'mx-auto' : ''}`}>
           {activeTab === 'overview' && <OverviewTelemetry key={refreshTick} token={session.token} onNotify={notify} />}
           {activeTab === 'systems' && (
             <SystemsManager
@@ -395,6 +661,7 @@ export default function App() {
                   allowSelfRegistration: updated.allowSelfRegistration,
                   sessionWarningSeconds: updated.sessionWarningSeconds,
                   telemetryStreamEnabled: updated.telemetryStreamEnabled,
+                  healthAlertSoundEnabled: updated.healthAlertSoundEnabled,
                   defaultJwtTtlSeconds: updated.defaultJwtTtlSeconds,
                   defaultSigningAlg: updated.defaultSigningAlg,
                   defaultEdgeCacheTtl: updated.defaultEdgeCacheTtl,

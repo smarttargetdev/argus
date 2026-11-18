@@ -26,9 +26,11 @@ import {
   Eye,
   X,
   CheckCheck,
+  Timer,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
 import { AuditLogs } from './AuditLogs';
+import { HealthHistoryPanel } from './HealthHistoryPanel';
 import type {
   AuditLog,
   ComplianceSummary,
@@ -36,12 +38,15 @@ import type {
   EdgeMetrics,
   IamSystem,
   IamUser,
+  SystemHealthEvent,
 } from '../types/iam';
 
 interface OverviewTelemetryProps {
   token: string;
-  onNotify: (msg: string) => void;
+  onNotify: (msg: string, variant?: 'success' | 'error' | 'warning') => void;
 }
+
+type RefreshIntervalOption = 10000 | 30000 | 60000 | 0;
 
 const OVERVIEW_BASE_QUERY = `
   query OverviewBaseTelemetry {
@@ -88,6 +93,17 @@ const OVERVIEW_BASE_QUERY = `
         expiresAt
         revokedAt
       }
+    }
+    systemHealthHistory(limit: 50) {
+      id
+      previousStatus
+      newStatus
+      avgLatencyMs
+      maxLatencyMs
+      sampleCount
+      errorCount
+      reason
+      createdAt
     }
   }
 `;
@@ -490,6 +506,7 @@ interface RecentAlertsListProps {
   alerts: AuditLog[];
   unreadIds: Set<string>;
   sseConnected: boolean;
+  refreshIntervalMs: RefreshIntervalOption;
   onMarkAllRead: () => void;
 }
 
@@ -517,9 +534,16 @@ const RecentAlertsList: React.FC<RecentAlertsListProps> = ({
   alerts,
   unreadIds,
   sseConnected,
+  refreshIntervalMs,
   onMarkAllRead,
 }) => {
   const [inspectingAlert, setInspectingAlert] = useState<AuditLog | null>(null);
+  const pollingLabel =
+    refreshIntervalMs === 0
+      ? 'Polling desativado'
+      : refreshIntervalMs === 60000
+        ? 'Polling 1min'
+        : `Polling ${refreshIntervalMs / 1000}s`;
 
   return (
     <section
@@ -547,7 +571,7 @@ const RecentAlertsList: React.FC<RecentAlertsListProps> = ({
         </div>
 
         <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
-          <span>{sseConnected ? 'SSE tempo real · Polling 10s' : 'Polling ativo (10s)'}</span>
+          <span>{sseConnected ? `SSE tempo real · ${pollingLabel}` : pollingLabel}</span>
           {unreadIds.size > 0 && (
             <button
               type="button"
@@ -685,12 +709,16 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
   const [usersSnapshot, setUsersSnapshot] = useState<IamUser[]>([]);
   const [logsSnapshot, setLogsSnapshot] = useState<AuditLog[]>([]);
   const [recentAlerts, setRecentAlerts] = useState<AuditLog[]>([]);
+  const [healthHistory, setHealthHistory] = useState<SystemHealthEvent[]>([]);
   const [unreadAlertIds, setUnreadAlertIds] = useState<Set<string>>(new Set());
   const [sseConnected, setSseConnected] = useState(false);
   const [lastDiag, setLastDiag] = useState<DiagnosticHeaders | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [refreshIntervalMs, setRefreshIntervalMs] = useState<RefreshIntervalOption>(10000);
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
   const initialAlertsLoadedRef = useRef(false);
+  const onNotifyRef = useRef(onNotify);
+  onNotifyRef.current = onNotify;
 
   const computeWarningsFromLogs = (logs: Array<Pick<AuditLog, 'status' | 'action'>>) => {
     let deniedCount = 0;
@@ -707,13 +735,14 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
     return { securityAlertCount, deniedCount, errorCount };
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const { data: baseData, diagnostics: baseDiag } = await gqlRequest<{
         edgeMetrics: EdgeMetrics;
         complianceSummary: ComplianceSummary;
         systems: Array<Pick<IamSystem, 'id' | 'name' | 'slug'>>;
         me: IamUser | null;
+        systemHealthHistory: SystemHealthEvent[];
       }>({
         token,
         query: OVERVIEW_BASE_QUERY,
@@ -721,6 +750,7 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
       });
       setMetrics(baseData.edgeMetrics);
       setSystemsSnapshot(baseData.systems || []);
+      setHealthHistory(baseData.systemHealthHistory || []);
       setLastDiag(baseDiag);
 
       const nowMs = Date.now();
@@ -768,8 +798,9 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
             });
             const newest = newlyDetected[0];
             const meta = classifyAlertLabel(newest.action);
-            onNotify(
-              `Alerta em tempo real: ${meta.title} (${newest.actorMasked} · ${newest.ipMasked})`
+            onNotifyRef.current(
+              `Alerta em tempo real: ${meta.title} (${newest.actorMasked} · ${newest.ipMasked})`,
+              'warning'
             );
           }
         }
@@ -812,17 +843,12 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         errorCount,
       });
     } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Erro ao carregar telemetria GraphQL.');
+      onNotifyRef.current(err instanceof Error ? err.message : 'Erro ao carregar telemetria GraphQL.', 'error');
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     void loadData();
-
-    // 10-second polling fallback alongside SSE stream for real-time alert notifications
-    const pollTimer = window.setInterval(() => {
-      void loadData();
-    }, 10000);
 
     const es = new EventSource('/api/telemetry/stream');
     es.addEventListener('connected', () => setSseConnected(true));
@@ -872,21 +898,60 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
             return next;
           });
           const meta = classifyAlertLabel(mapped.action);
-          onNotify(
-            `Alerta em tempo real: ${meta.title} (${mapped.actorMasked} · ${mapped.ipMasked})`
+          onNotifyRef.current(
+            `Alerta em tempo real: ${meta.title} (${mapped.actorMasked} · ${mapped.ipMasked})`,
+            'warning'
           );
         }
       } catch {
         // ignore malformed stream payload
       }
     });
+    es.addEventListener('health_transition', (ev) => {
+      try {
+        const raw = JSON.parse((ev as MessageEvent).data) as {
+          id: string;
+          previous_status: 'healthy' | 'degraded' | 'critical' | null;
+          new_status: 'healthy' | 'degraded' | 'critical';
+          avg_latency_ms: number;
+          max_latency_ms: number;
+          sample_count: number;
+          error_count: number;
+          reason: string;
+          created_at: string;
+        };
+        const mapped: SystemHealthEvent = {
+          id: raw.id,
+          previousStatus: raw.previous_status,
+          newStatus: raw.new_status,
+          avgLatencyMs: raw.avg_latency_ms,
+          maxLatencyMs: raw.max_latency_ms,
+          sampleCount: raw.sample_count,
+          errorCount: raw.error_count,
+          reason: raw.reason,
+          createdAt: raw.created_at,
+        };
+        setHealthHistory((prev) =>
+          prev.some((item) => item.id === mapped.id) ? prev : [mapped, ...prev].slice(0, 50)
+        );
+      } catch {
+        // ignore malformed health_transition payload
+      }
+    });
     es.onerror = () => setSseConnected(false);
 
     return () => {
-      window.clearInterval(pollTimer);
       es.close();
     };
-  }, [token]);
+  }, [loadData]);
+
+  useEffect(() => {
+    if (refreshIntervalMs <= 0) return;
+    const pollTimer = window.setInterval(() => {
+      void loadData();
+    }, refreshIntervalMs);
+    return () => window.clearInterval(pollTimer);
+  }, [refreshIntervalMs, loadData]);
 
   const handleLogsUpdated = useCallback((updatedLogs: AuditLog[]) => {
     setLogsSnapshot(updatedLogs);
@@ -1019,11 +1084,11 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         query: `mutation PurgeAll { purgeEdgeCache }`,
         operationName: 'PurgeAll',
       });
-      onNotify(`Cache de borda invalidado (${data.purgeEdgeCache} entradas removidas).`);
+      onNotify(`Cache de borda invalidado (${data.purgeEdgeCache} entradas removidas).`, 'success');
       setRefreshTick((t) => t + 1);
       void loadData();
     } catch (err) {
-      onNotify(err instanceof Error ? err.message : 'Sem permissão para purgar cache.');
+      onNotify(err instanceof Error ? err.message : 'Sem permissão para purgar cache.', 'error');
     }
   };
 
@@ -1041,7 +1106,25 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
             Estatísticas-chave, tendência de usuários ativos em 24h, métricas na borda e auditoria de acesso em tempo real.
           </p>
         </div>
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 bg-[#111827] border border-slate-700/80 rounded-md px-2.5 py-1.5">
+            <Timer className="w-3.5 h-3.5 text-[#F6821F] shrink-0" />
+            <label htmlFor="overview-refresh-interval" className="text-[11px] text-slate-400 whitespace-nowrap">
+              Atualização:
+            </label>
+            <select
+              id="overview-refresh-interval"
+              aria-label="Intervalo de atualização automática"
+              value={refreshIntervalMs}
+              onChange={(e) => setRefreshIntervalMs(Number(e.target.value) as RefreshIntervalOption)}
+              className="bg-transparent text-xs font-mono text-slate-100 focus:outline-none cursor-pointer"
+            >
+              <option value={10000} className="bg-[#090D16]">10s</option>
+              <option value={30000} className="bg-[#090D16]">30s</option>
+              <option value={60000} className="bg-[#090D16]">1min</option>
+              <option value={0} className="bg-[#090D16]">Desativado</option>
+            </select>
+          </div>
           <button
             type="button"
             onClick={handleRefreshAll}
@@ -1194,11 +1277,15 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         </div>
       </div>
 
+      {/* Historical Log of System Health Status Transitions */}
+      <HealthHistoryPanel events={healthHistory} sseConnected={sseConnected} />
+
       {/* Recent Security Alerts List (SSE + Polling) */}
       <RecentAlertsList
         alerts={recentAlerts}
         unreadIds={unreadAlertIds}
         sseConnected={sseConnected}
+        refreshIntervalMs={refreshIntervalMs}
         onMarkAllRead={() => setUnreadAlertIds(new Set())}
       />
 

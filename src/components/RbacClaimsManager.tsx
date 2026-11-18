@@ -215,8 +215,8 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
   const previewJwtPayload = {
     iss: 'https://smarties-secure-gate.edge.local',
     sub: 'usr-exemplo-01',
-    aud: currentSystem?.slug || 'vektor-core',
-    sys: currentSystem?.slug || 'vektor-core',
+    aud: currentSystem?.slug || 'secure-gate',
+    sys: currentSystem?.slug || 'secure-gate',
     roles: inspectedRole ? [inspectedRole.name] : [],
     permissions: inspectedRole ? inspectedRole.permissions.map((p) => p.code) : [],
     claims: inspectedRole

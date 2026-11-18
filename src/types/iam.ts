@@ -207,12 +207,32 @@ export interface AuthSessionState {
 
 export type ExecutionEnvironment = 'Desenvolvimento' | 'Homologação' | 'Produção';
 
+export interface LatencyTrendPoint {
+  minuteIso: string;
+  avgLatencyMs: number;
+  maxLatencyMs: number;
+  sampleCount: number;
+}
+
+export interface SystemHealthEvent {
+  id: string;
+  previousStatus: 'healthy' | 'degraded' | 'critical' | null;
+  newStatus: 'healthy' | 'degraded' | 'critical';
+  avgLatencyMs: number;
+  maxLatencyMs: number;
+  sampleCount: number;
+  errorCount: number;
+  reason: string;
+  createdAt: string;
+}
+
 export interface PublicPlatformConfig {
   executionEnvironment: ExecutionEnvironment;
   platformName: string;
   allowSelfRegistration: boolean;
   sessionWarningSeconds: number;
   telemetryStreamEnabled: boolean;
+  healthAlertSoundEnabled?: boolean;
   defaultJwtTtlSeconds: number;
   defaultSigningAlg: 'RS256' | 'HS256';
   defaultEdgeCacheTtl: number;
@@ -243,6 +263,7 @@ export interface PlatformSystemSettings {
   auditRetentionDays: number;
   piiMaskingEnabled: boolean;
   telemetryStreamEnabled: boolean;
+  healthAlertSoundEnabled: boolean;
   defaultPrivacyPolicyVersion: string;
   requireExplicitConsent: boolean;
   allowDataPortabilityExport: boolean;
