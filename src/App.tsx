@@ -512,7 +512,7 @@ export default function App() {
               ) : (
                 <Maximize2 className="w-3.5 h-3.5 text-slate-400" />
               )}
-              <span>{isExpandedView ? 'Restaurar Visualização' : 'Expandir Visualização'}</span>
+              <span>{isExpandedView ? 'Restaurar' : 'Expandir'}</span>
             </button>
 
             {lastDiag && (
@@ -591,7 +591,7 @@ export default function App() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#111827] hover:bg-slate-800 border border-slate-700/80 text-slate-200 rounded-md transition-colors whitespace-nowrap shrink-0"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Encerrar Sessão</span>
+              <span>Sair</span>
             </button>
           </div>
         </header>

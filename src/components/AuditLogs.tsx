@@ -458,9 +458,6 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
                 )}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Trilha de auditoria e atividades dos sistemas consultada via GraphQL com mascaramento de PII (LGPD/GDPR).
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

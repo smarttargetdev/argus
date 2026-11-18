@@ -1139,7 +1139,7 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
             className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md transition-colors whitespace-nowrap"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Purgar Cache de Borda</span>
+            <span>Expurgar</span>
           </button>
         </div>
       </div>
@@ -1149,9 +1149,6 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
           <div>
             <h2 className="text-sm font-semibold text-white">Estatísticas-Chave</h2>
-            <p className="text-[11px] text-slate-400">
-              Contagem ao vivo obtida via GraphQL (DataLoader em lote) e stream de auditoria.
-            </p>
           </div>
           <span className="text-[11px] font-mono text-slate-400">Atualização ao vivo</span>
         </div>
