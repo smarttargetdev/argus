@@ -10,6 +10,8 @@ import {
   UserCircle2,
   LogOut,
   CheckCircle2,
+  AlertTriangle,
+  AlertOctagon,
   Clock,
   X,
   ScrollText,
@@ -27,6 +29,7 @@ import { ProfileAndCompliance } from './components/ProfileAndCompliance';
 import { SystemSettings } from './components/SystemSettings';
 import { subscribeDiagnostics } from './lib/graphqlClient';
 import { useSessionExpiration } from './hooks/useSessionExpiration';
+import { useSystemHealth } from './hooks/useSystemHealth';
 import type { AuthSessionState, DiagnosticHeaders, PublicPlatformConfig } from './types/iam';
 
 type NavTab =
@@ -107,6 +110,19 @@ export default function App() {
     handleLogout,
     publicConfig?.sessionWarningSeconds ?? 300
   );
+
+  const canReadAuditLogs = Boolean(
+    session &&
+      (session.user.roles.includes('super_admin') ||
+        session.user.permissions.includes('iam:audit:read'))
+  );
+
+  const systemHealth = useSystemHealth({
+    token: session?.token ?? null,
+    canReadAuditLogs,
+    telemetryStreamEnabled: publicConfig?.telemetryStreamEnabled ?? true,
+    refreshSignal: refreshTick,
+  });
 
   const notify = (msg: string) => {
     if (msg === 'UNAUTHENTICATED') {
@@ -270,6 +286,53 @@ export default function App() {
                 <span>SQL:{lastDiag.sqliteQueriesCount}</span>
               </div>
             )}
+
+            <div
+              role="status"
+              aria-label={`Saúde do Sistema: ${systemHealth.label}${
+                systemHealth.avgLatencyMs !== null
+                  ? `, latência média ${systemHealth.avgLatencyMs.toFixed(1)} ms`
+                  : ''
+              }`}
+              title={
+                systemHealth.avgLatencyMs !== null
+                  ? `Saúde do Sistema: ${systemHealth.label} · Latência média: ${systemHealth.avgLatencyMs.toFixed(1)}ms (${systemHealth.sampleCount} logs recentes, máx ${systemHealth.maxLatencyMs?.toFixed(1) ?? '0.0'}ms). Faixas: Verde < 100ms · Amarelo 100–299ms · Vermelho ≥ 300ms.`
+                  : 'Calculando saúde do sistema pelos logs de auditoria recentes...'
+              }
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] whitespace-nowrap ${
+                systemHealth.level === 'critical'
+                  ? 'bg-red-950/35 border-red-800/60 text-red-200'
+                  : systemHealth.level === 'degraded'
+                    ? 'bg-amber-950/35 border-amber-700/60 text-amber-200'
+                    : systemHealth.level === 'healthy'
+                      ? 'bg-[#111827] border-emerald-800/60 text-slate-200'
+                      : 'bg-[#111827] border-slate-800 text-slate-400'
+              }`}
+            >
+              {systemHealth.level === 'critical' ? (
+                <AlertOctagon className="w-3.5 h-3.5 text-red-400 shrink-0" />
+              ) : systemHealth.level === 'degraded' ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              ) : systemHealth.level === 'healthy' ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              ) : (
+                <Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              )}
+              <span className="font-medium">Saúde do Sistema</span>
+              {systemHealth.avgLatencyMs !== null && (
+                <span
+                  className={`font-mono tabular-nums ${
+                    systemHealth.level === 'critical'
+                      ? 'text-red-300'
+                      : systemHealth.level === 'degraded'
+                        ? 'text-amber-300'
+                        : 'text-emerald-400'
+                  }`}
+                >
+                  {systemHealth.avgLatencyMs.toFixed(1)}ms
+                </span>
+              )}
+            </div>
             <div
               className={`hidden md:flex items-center gap-1.5 text-[11px] font-mono tabular-nums ${
                 isExpiringSoon ? 'text-amber-400' : 'text-slate-400'

@@ -220,6 +220,15 @@ const schema = buildSchema(`
     activeSseStreams: Int!
   }
 
+  type SystemHealth {
+    status: String!
+    avgLatencyMs: Float!
+    maxLatencyMs: Float!
+    sampleCount: Int!
+    errorCount: Int!
+    measuredAt: String!
+  }
+
   type ComplianceSummary {
     totalUsers: Int!
     anonymizedUsers: Int!
@@ -400,6 +409,7 @@ const schema = buildSchema(`
     identityProviders: [IdentityProvider!]!
     auditLogs(systemId: ID, action: String, limit: Int): [AuditLog!]!
     edgeMetrics: EdgeMetrics!
+    systemHealth(limit: Int): SystemHealth!
     complianceSummary: ComplianceSummary!
     exportMyDataJson: String!
     systemSettings: SystemSettings!
@@ -1051,6 +1061,39 @@ const rootValue = {
     return {
       ...getEdgeMetricsSnapshot(),
       activeSseStreams: getActiveSseCount(),
+    };
+  },
+
+  systemHealth: ({ limit }: { limit?: number }, ctx: GraphQLRequestContext) => {
+    requireAuth(ctx);
+    flushAuditQueue();
+    ctx.trackRead();
+    const lim = Math.min(200, Math.max(1, limit ?? 50));
+    const rows = db
+      .prepare('SELECT duration_ms, status FROM audit_logs ORDER BY created_at DESC LIMIT ?')
+      .all(lim) as Array<{ duration_ms: number; status: string }>;
+
+    const sampleCount = rows.length;
+    let total = 0;
+    let maxLatencyMs = 0;
+    let errorCount = 0;
+    for (const r of rows) {
+      const d = Number(r.duration_ms || 0);
+      total += d;
+      if (d > maxLatencyMs) maxLatencyMs = d;
+      if (r.status === 'error') errorCount += 1;
+    }
+    const avgLatencyMs = sampleCount > 0 ? Number((total / sampleCount).toFixed(2)) : 0;
+    const status =
+      avgLatencyMs >= 300 ? 'critical' : avgLatencyMs >= 100 ? 'degraded' : 'healthy';
+
+    return {
+      status,
+      avgLatencyMs,
+      maxLatencyMs: Number(maxLatencyMs.toFixed(2)),
+      sampleCount,
+      errorCount,
+      measuredAt: new Date().toISOString(),
     };
   },
 

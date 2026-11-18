@@ -449,5 +449,11 @@ Você pode exportar o pacote pronto diretamente pela aba **Infraestrutura** (**B
 - Atualização do combo **Sistema** (`AuthGate`) para exibir exclusivamente o nome amigável do sistema, omitindo o slug entre parênteses.
 - Substituição do texto do rodapé da tela de login para **`™》Smart Target, 2026`**.
 
+### v1.17.0 — Indicador de Saúde do Sistema na Barra Superior e Refinamentos de Login/Configurações
+- **Indicador "Saúde do Sistema" (`useSystemHealth` + `App`)**: exibição na barra superior, ao lado do diagnóstico `CF`, de ícone semântico verde (`< 100ms`), amarelo (`100–299ms`) ou vermelho (`≥ 300ms`) com leitura tabular da latência média calculada a partir dos logs de auditoria recentes via GraphQL (`auditLogs` / `systemHealth`) e atualizada em tempo real via stream SSE (`/api/telemetry/stream`).
+- **Combo Editável de Usuário e Tabela Compacta (`AuthGate`)**: conversão do campo **Usuário** em combobox híbrido (contas rápidas ou entrada manual com senha somente leitura para contas rápidas), tabela de metadados sem bordas internas com rótulo **Sistema Selecionado** e rodapé `© 2026, Smart Target`.
+- **Navegação e Abas (`App` / `SystemSettings`)**: renomeação do item de auditoria para **Auditoria** e organização da tela de configurações em abas estruturadas (`role="tablist"`).
+
+
 
 

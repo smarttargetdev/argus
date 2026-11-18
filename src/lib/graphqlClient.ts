@@ -15,6 +15,7 @@ export async function gqlRequest<T>(params: {
   variables?: Record<string, unknown>;
   operationName?: string;
   bypassCache?: boolean;
+  silentDiagnostics?: boolean;
 }): Promise<{ data: T; diagnostics: DiagnosticHeaders }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -44,8 +45,10 @@ export async function gqlRequest<T>(params: {
     timestamp: new Date().toISOString(),
   };
 
-  for (const fn of listeners) {
-    fn(diagnostics);
+  if (!params.silentDiagnostics) {
+    for (const fn of listeners) {
+      fn(diagnostics);
+    }
   }
 
   const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
