@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserPlus, Edit3, Trash2, Link2, X } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { IamSystem, IamUser } from '../types/iam';
 
 interface UsersManagerProps {
@@ -236,11 +237,9 @@ export const UsersManager: React.FC<UsersManagerProps> = ({ token, currentUserId
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-display text-xl font-semibold text-white">Contas de Usuário</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            CRUD completo via GraphQL com resolução em lote DataLoader (zero N+1) e versionamento instantâneo de permissões.
-          </p>
+          <InfoTooltip text="CRUD completo via GraphQL com resolução em lote DataLoader (zero N+1) e versionamento instantâneo de permissões." />
         </div>
         <button
           type="button"

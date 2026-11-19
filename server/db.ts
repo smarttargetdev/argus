@@ -470,7 +470,7 @@ export function seedInitialData(): void {
 
   insertSystem.run(
     sysCoreId,
-    'Secure Gate',
+    'Identity Secure Gate',
     'secure-gate',
     'Painel principal de governanca IAM, emissao de tokens e gestao multi-sistema.',
     'cid_vektor_core_2026',
@@ -805,7 +805,7 @@ export function seedInitialData(): void {
 }
 
 seedInitialData();
-db.prepare("UPDATE systems SET name = 'Secure Gate' WHERE id = 'sys-vektor-core' AND name IN ('Vektor Core Console', 'Smarties Gate Core', 'Smarties Secure Gate Core')").run();
+db.prepare("UPDATE systems SET name = 'Identity Secure Gate' WHERE id = 'sys-vektor-core' AND name IN ('Vektor Core Console', 'Smarties Gate Core', 'Smarties Secure Gate Core', 'Secure Gate')").run();
 db.prepare("UPDATE systems SET slug = 'secure-gate' WHERE id = 'sys-vektor-core' AND slug = 'vektor-core'").run();
 db.prepare("UPDATE systems SET slug = 'edgepay-gateway' WHERE id = 'sys-edgepay-gw' AND slug = 'edgepay-api'").run();
 db.prepare("UPDATE systems SET name = 'Atlas Analytics' WHERE id = 'sys-atlas-bi' AND name = 'Atlas Analytics Portal'").run();

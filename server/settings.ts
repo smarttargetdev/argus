@@ -36,8 +36,8 @@ export interface PlatformSettings {
 
 const DEFAULT_SETTINGS: PlatformSettings = {
   executionEnvironment: 'Desenvolvimento',
-  platformName: 'Smarties Secure Gate',
-  jwtIssuer: process.env.IAM_JWT_ISSUER || 'https://smarties-gate.edge.local',
+  platformName: 'Identity Secure Gate',
+  jwtIssuer: process.env.IAM_JWT_ISSUER || 'https://isg.edge.local',
   appBaseUrl: process.env.APP_URL || '',
   defaultJwtTtlSeconds: 3600,
   defaultSigningAlg: 'RS256',
@@ -85,7 +85,7 @@ function normalizeSettings(raw: Partial<PlatformSettings>, updatedBy = 'system')
   const env = sanitizeEnvironment(raw.executionEnvironment ?? DEFAULT_SETTINGS.executionEnvironment);
   return {
     executionEnvironment: env,
-    platformName: String(raw.platformName ?? DEFAULT_SETTINGS.platformName).trim() || 'Smarties Secure Gate',
+    platformName: String(raw.platformName ?? DEFAULT_SETTINGS.platformName).trim() || 'Identity Secure Gate',
     jwtIssuer: String(raw.jwtIssuer ?? DEFAULT_SETTINGS.jwtIssuer).trim() || DEFAULT_SETTINGS.jwtIssuer,
     appBaseUrl: String(raw.appBaseUrl ?? DEFAULT_SETTINGS.appBaseUrl).trim(),
     defaultJwtTtlSeconds: clampInt(raw.defaultJwtTtlSeconds, DEFAULT_SETTINGS.defaultJwtTtlSeconds, 60, 86400),
@@ -124,7 +124,29 @@ function ensureInitialSettingsSeeded(): PlatformSettings {
 
   if (row) {
     const parsed = JSON.parse(row.setting_value) as Partial<PlatformSettings>;
+    let migrated = false;
+    if (
+      parsed.platformName === 'Smarties Secure Gate' ||
+      parsed.platformName === 'Smarties Gate'
+    ) {
+      parsed.platformName = 'Identity Secure Gate';
+      migrated = true;
+    }
+    if (
+      parsed.jwtIssuer === 'https://smarties-gate.edge.local' ||
+      parsed.jwtIssuer === 'https://smarties-secure-gate.edge.local'
+    ) {
+      parsed.jwtIssuer = 'https://isg.edge.local';
+      migrated = true;
+    }
     const normalized = normalizeSettings({ ...parsed, updatedAt: row.updated_at, updatedBy: row.updated_by });
+    if (migrated) {
+      const now = new Date().toISOString();
+      db.prepare(
+        'UPDATE system_settings SET setting_value = ?, updated_at = ? WHERE setting_key = ?'
+      ).run(JSON.stringify(normalized), now, 'platform_config');
+      dbStats.totalWrites += 1;
+    }
     setAuditBatchSize(normalized.auditFlushBatchSize);
     cachedSettings = normalized;
     return normalized;

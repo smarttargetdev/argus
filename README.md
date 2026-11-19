@@ -1,4 +1,4 @@
-# Smarties Secure Gate — Plataforma de Identidade, OAuth 2.0, RBAC e Governança na Borda
+# Identity Secure Gate (ISG) — Plataforma de Identidade, OAuth 2.0, RBAC e Governança na Borda
 
 Plataforma completa de **Identity and Access Management (IAM)** construída com **React** + **Node.js**, otimizada para **alta taxa de leitura e baixa taxa de gravação** sobre **SQLite (WAL) / Cloudflare D1**, com API **GraphQL** centralizada, **cache distribuído na borda** sensível à expiração de tokens JWT e versões de permissão, **autenticação de dois fatores (TOTP + SMS)**, federação com **provedores externos (IdPs)**, telemetria em tempo real e conformidade **LGPD / GDPR**.
 
@@ -23,7 +23,7 @@ Plataforma completa de **Identity and Access Management (IAM)** construída com 
 
 ## Visão Geral e Stack Tecnológica
 
-O **Smarties Secure Gate** centraliza autenticação, autorização e auditoria para múltiplos sistemas clientes em um único plano de controle:
+O **Identity Secure Gate (ISG)** centraliza autenticação, autorização e auditoria para múltiplos sistemas clientes em um único plano de controle:
 
 | Camada | Tecnologias | Responsabilidade |
 | :--- | :--- | :--- |
@@ -81,7 +81,7 @@ Todas as variáveis suportadas são configuradas via arquivo `.env` ou variávei
 | `PORT` | `3000` | Não | Porta HTTP onde o Express e o Vite servem a aplicação (`0.0.0.0`). |
 | `APP_URL` | Detectado via request | Recomendado | URL pública base da aplicação (ex.: `https://iam.sua-empresa.com`), usada no OIDC Discovery e callbacks OAuth. |
 | `SQLITE_PATH` | `./data/vektor-iam.sqlite` | Não | Caminho do arquivo de banco SQLite (local ou volume persistente). |
-| `IAM_JWT_ISSUER` | `https://smarties-gate.edge.local` | Recomendado | Claim `iss` assinada nos JWTs emitidos e exibida no `/.well-known/openid-configuration`. |
+| `IAM_JWT_ISSUER` | `https://isg.edge.local` | Recomendado | Claim `iss` assinada nos JWTs emitidos e exibida no `/.well-known/openid-configuration`. |
 | `IAM_MASTER_SECRET` | Chave dev padrão | **Sim (Prod)** | Chave mestra (mín. 32 bytes) usada para criptografia **AES-256-GCM** dos segredos TOTP em repouso e assinatura interna. |
 | `GOOGLE_OAUTH_CLIENT_ID` | *(vazio — modo simulado)* | Não | Client ID real do Google OAuth 2.0. Quando definido, desativa o modo simulado para Google. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | *(vazio)* | Não | Client Secret do Google OAuth 2.0. |
@@ -203,7 +203,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor U as Usuário / App Cliente
-    participant API as Backend Smarties Secure Gate / Worker
+    participant API as Backend Identity Secure Gate (ISG) / Worker
     participant DB as SQLite / D1
     participant MFA as TOTP / SMS OTP
 
@@ -276,7 +276,7 @@ erDiagram
 
 | Sistema | Slug | Algoritmo / TTL JWT | Edge Cache TTL | Política 2FA |
 | :--- | :--- | :--- | :--- | :--- |
-| **Secure Gate** | `secure-gate` | `RS256` · `3600s` | `120s` | Opcional / Perfil |
+| **Identity Secure Gate** | `secure-gate` | `RS256` · `3600s` | `120s` | Opcional / Perfil |
 | **EdgePay Gateway** | `edgepay-gateway` | `RS256` · `900s` | `45s` | **Obrigatório** |
 | **Atlas Analytics** | `atlas-analytics` | `HS256` · `7200s` | `300s` | Opcional / Perfil |
 
@@ -284,11 +284,15 @@ erDiagram
 
 ## Módulos da Interface
 
-- **Visão Geral**:
-  - **Estatísticas-Chave**: contagens ao vivo de usuários ativos, tokens JWT válidos e alertas de segurança recentes via GraphQL.
-  - **Gráficos Analíticos**: tendência horária de usuários ativos nas últimas 24 horas (D3.js) e distribuição de códigos HTTP `2xx` / `4xx` / `5xx` por sistema (Recharts).
-  - **Alertas Recentes**: monitoramento em tempo real via SSE + polling de 10 segundos para tentativas de acesso não autorizadas e falhas de 2FA, com inspetor detalhado em popup.
-  - **AuditLogs**: tabela pesquisável e filtrável por sistema, status (`Sucesso`, `Negado`, `Erro`), categoria de ação, tipo de recurso e janela temporal, com ordenação, exportação CSV, diagnósticos GraphQL e inspeção JSON estruturada em popup.
+- **Visão Geral (Painel Sintético + 7 Submenus Detalhados)**:
+  - **Visão Geral**: consolida todas as seções em uma única página sintética com atalhos diretos (`Detalhar`) para cada submenu.
+  - **Estatísticas-Chave**: contagens ao vivo e inventário completo de usuários, adoção de 2FA (TOTP/SMS) e sessões JWT ativas/expiradas.
+  - **Tendência (24h)**: gráfico D3.js interativo e tabela detalhada das 24 janelas horárias de usuários, sessões e eventos.
+  - **Códigos HTTP (24h)**: gráfico empilhado Recharts (`2xx`/`4xx`/`5xx`) e tabela de taxas de sucesso por sistema.
+  - **Borda & SQLite WAL**: matriz completa de Edge Cache, KV Store, latências `p50`/`p95`, SQLite WAL e streams SSE.
+  - **Histórico de Saúde**: transições persistidas entre *Saudável*, *Atenção* e *Crítica* com filtros por severidade.
+  - **Alertas Recentes**: monitoramento em tempo real via SSE + polling com filtros por categoria (`Acesso`, `2FA`, `RBAC`) e inspetor JSON em popup.
+  - **Logs de Auditoria**: tabela pesquisável e filtrável por sistema, status, categoria de ação, recurso e janela temporal, com exportação CSV UTF-8 e popup *master/details*.
 - **Sistemas**: criação, edição, remoção, configuração de redirect URIs, TTL de JWT, algoritmo (`RS256`/`HS256`), obrigatoriedade de 2FA, IdPs permitidos e rotação de `client_secret` (exibição única em popup).
 - **Usuários**: criação administrativa, edição, bloqueio e gerenciamento em popup de vínculos multi-sistema (`Usuário + Sistema + Role`).
 - **Permissões**: catálogo de roles e permissões atômicas, configuração em popup de permissões vinculadas e claims tipadas com pré-visualização ao vivo do payload JWT emitido.
@@ -331,12 +335,12 @@ Você pode exportar o pacote pronto diretamente pela aba **Infraestrutura** (**B
 
 1. **Crie o banco D1 na Cloudflare:**
    ```bash
-   npx wrangler d1 create smarties-gate-d1
+   npx wrangler d1 create isg-d1
    ```
 
 2. **Aplique o schema SQL otimizado com índices de cobertura:**
    ```bash
-   npx wrangler d1 execute smarties-gate-d1 --file=./schema.d1.sql
+   npx wrangler d1 execute isg-d1 --file=./schema.d1.sql
    ```
 
 3. **Crie o namespace Workers KV para versionamento de permissões e revogação instantânea de JTI:**
@@ -454,6 +458,13 @@ Você pode exportar o pacote pronto diretamente pela aba **Infraestrutura** (**B
 - **Combo Editável de Usuário e Tabela Compacta (`AuthGate`)**: conversão do campo **Usuário** em combobox híbrido (contas rápidas ou entrada manual com senha somente leitura para contas rápidas), tabela de metadados sem bordas internas com rótulo **Sistema Selecionado** e rodapé `© 2026, Smart Target`.
 - **Navegação e Abas (`App` / `SystemSettings`)**: renomeação do item de auditoria para **Auditoria** e organização da tela de configurações em abas estruturadas (`role="tablist"`).
 
+### v1.18.0 — Sidebar Colapsável, Modo Expandido, Sparkline, Histórico de Saúde, Alertas Sonoros e Migração de Dados
+- **Navegação & Foco (`App`)**: botão de colapsar/expandir sidebar (`PanelLeftClose`/`PanelLeftOpen`), modo **Expandir** (`Maximize2`/`Minimize2`) na barra superior para ocultar a barra lateral e centralizar o conteúdo, além de atalhos globais de teclado (`g` + tecla de seção) e variantes semânticas de notificação (`success`, `warning`, `error`).
+- **Tendência & Histórico de Saúde (`LatencySparkline`, `HealthHistoryPanel`, `healthAlertAudio`)**: sparkline dos últimos 10 minutos no indicador de **Saúde do Sistema**, tabela `system_health_events` persistindo transições entre `healthy`/`degraded`/`critical` via SSE (`health_transition`) e GraphQL (`systemHealthHistory`), e alerta sonoro configurável (`healthAlertSoundEnabled`) em **Configurações**.
+- **Auditoria & Telemetria (`AuditLogs`, `OverviewTelemetry`)**: persistência de filtros em sessão, busca por nome/e-mail real via diretório `actorDirectory`, exportação CSV com BOM UTF-8, intervalo de atualização configurável (`10s`, `30s`, `1min`, `Desativado`).
+- **Atualização de Dados Iniciais (`server/db.ts`, `AuthGate`)**: migração automática dos sistemas para **Secure Gate** (`secure-gate`), **EdgePay Gateway** (`edgepay-gateway`) e **Atlas Analytics** (`atlas-analytics`) e das contas administrativas/operacionais para `administrator@smarttarget.com.br` e `operator@smarttarget.com.br`.
 
-
-
+### v1.19.0 — Identity Secure Gate (ISG), Submenus Detalhados na Visão Geral, Painel Sintético e Tooltips
+- **Rebranding Oficial para "Identity Secure Gate" (`ISG`)**: atualização do nome oficial e acrônimo **ISG** na interface React (`App`, `AuthGate`), título HTML/OpenGraph (`index.html`), emissores JWT/TOTP (`https://isg.edge.local`), pacote exportável Cloudflare Workers/D1 (`isg-edge-worker`, `isg-d1`, `isg-cloudflare-d1-bundle.zip`), sistema core no SQLite e migração automática em `server/settings.ts`.
+- **Visão Geral Sintética + 7 Submenus Detalhados (`OverviewTelemetry`, `App`)**: conversão das seções de **Visão Geral** em submenus expansíveis na barra lateral (**Estatísticas-Chave**, **Tendência (24h)**, **Códigos HTTP (24h)**, **Borda & SQLite WAL**, **Histórico de Saúde**, **Alertas Recentes** e **Logs de Auditoria**) com visões de máximo detalhamento (inventário de usuários/2FA, tabela horária de 24 pontos, matriz completa de cache/SQLite, filtros por categoria) e página **Visão Geral** compacta/sintética reunindo todas as seções com botões de detalhamento direto.
+- **Subtítulos Descritivos em Tooltips (`InfoTooltip`)**: criação do componente acessível `InfoTooltip` e substituição dos subtítulos descritivos estáticos nos cabeçalhos dos módulos por tooltips interativos acionáveis por foco, hover ou clique.

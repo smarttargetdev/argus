@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { ComplianceSummary, IamSystem, IamUser } from '../types/iam';
 
 interface ProfileAndComplianceProps {
@@ -383,7 +384,7 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `smarties-secure-gate-portabilidade-lgpd-${me?.id || 'titular'}.json`;
+      a.download = `isg-portabilidade-lgpd-${me?.id || 'titular'}.json`;
       a.click();
       URL.revokeObjectURL(url);
       onNotify('Pacote JSON de portabilidade LGPD/GDPR exportado.');
@@ -418,11 +419,9 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
       {mode === 'profile' ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
+            <div className="flex items-center gap-2">
               <h1 className="font-display text-xl font-semibold text-white">Perfil do Usuário</h1>
-              <p className="text-xs text-slate-400 mt-1">
-                Visualize suas credenciais, vínculos multi-sistema e sessões ativas; use os popups de configuração para alterar dados, senha ou 2FA.
-              </p>
+              <InfoTooltip text="Visualize suas credenciais, vínculos multi-sistema e sessões ativas; use os popups de configuração para alterar dados, senha ou 2FA." />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -977,11 +976,9 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
         /* LGPD & GDPR Compliance Center */
         <>
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
+            <div className="flex items-center gap-2">
               <h1 className="font-display text-xl font-semibold text-white">Conformidade LGPD e GDPR</h1>
-              <p className="text-xs text-slate-400 mt-1">
-                Governança de consentimentos versionados, portabilidade de dados pessoais (SAR), mascaramento de PII e direito ao esquecimento.
-              </p>
+              <InfoTooltip text="Governança de consentimentos versionados, portabilidade de dados pessoais (SAR), mascaramento de PII e direito ao esquecimento." />
             </div>
             <button
               type="button"
@@ -1073,11 +1070,9 @@ export const ProfileAndCompliance: React.FC<ProfileAndComplianceProps> = ({
           <div className="bg-[#111827] border border-red-900/50 rounded-lg p-5 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-              <div>
+              <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-white">Direito ao Esquecimento e Anonimização (LGPD / GDPR)</h3>
-                <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-                  Remove irreversivelmente nome, e-mail, telefone, segredos 2FA e vínculos externos, revogando todas as sessões e preservando apenas os hashes pseudonimizados de auditoria legal.
-                </p>
+                <InfoTooltip text="Remove irreversivelmente nome, e-mail, telefone, segredos 2FA e vínculos externos, revogando todas as sessões e preservando apenas os hashes pseudonimizados de auditoria legal." />
               </div>
             </div>
             <button

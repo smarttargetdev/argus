@@ -27,10 +27,17 @@ import {
   X,
   CheckCheck,
   Timer,
+  ArrowRight,
+  ArrowLeft,
+  History,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
 import { AuditLogs } from './AuditLogs';
 import { HealthHistoryPanel } from './HealthHistoryPanel';
+import { InfoTooltip } from './InfoTooltip';
 import type {
   AuditLog,
   ComplianceSummary,
@@ -41,12 +48,25 @@ import type {
   SystemHealthEvent,
 } from '../types/iam';
 
+export type OverviewSection =
+  | 'overview'
+  | 'overview-stats'
+  | 'overview-trend'
+  | 'overview-http'
+  | 'overview-edge'
+  | 'overview-health'
+  | 'overview-alerts'
+  | 'overview-audit';
+
 interface OverviewTelemetryProps {
   token: string;
+  section?: OverviewSection;
+  onNavigateSection?: (section: OverviewSection) => void;
   onNotify: (msg: string, variant?: 'success' | 'error' | 'warning') => void;
 }
 
 type RefreshIntervalOption = 10000 | 30000 | 60000 | 0;
+type AlertCategoryFilter = 'all' | 'mfa' | 'auth' | 'rbac';
 
 const OVERVIEW_BASE_QUERY = `
   query OverviewBaseTelemetry {
@@ -86,9 +106,21 @@ const OVERVIEW_BASE_QUERY = `
     }
     me {
       id
+      email
+      displayName
+      status
+      totpEnabled
+      phoneVerified
+      mfaPreferredMethod
+      permVersion
       lastLoginAt
+      createdAt
       sessions {
         id
+        systemId
+        systemName
+        authMethod
+        ipMasked
         createdAt
         expiresAt
         revokedAt
@@ -112,11 +144,21 @@ const OVERVIEW_ADMIN_STATS_QUERY = `
   query OverviewAdminKeyStats {
     users(limit: 200) {
       id
+      email
+      displayName
       status
+      totpEnabled
+      phoneVerified
+      mfaPreferredMethod
+      permVersion
       lastLoginAt
       createdAt
       sessions {
         id
+        systemId
+        systemName
+        authMethod
+        ipMasked
         createdAt
         expiresAt
         revokedAt
@@ -142,10 +184,47 @@ const OVERVIEW_ADMIN_STATS_QUERY = `
   }
 `;
 
+const SECTION_META: Record<OverviewSection, { title: string; tooltip: string }> = {
+  overview: {
+    title: 'Visão Geral',
+    tooltip: 'Painel sintético consolidando estatísticas-chave, tendência de 24h, HTTP, borda/SQLite, saúde, alertas e auditoria.',
+  },
+  'overview-stats': {
+    title: 'Estatísticas-Chave',
+    tooltip: 'Detalhamento completo de usuários ativos, adoção de 2FA (TOTP/SMS), tokens JWT ativos e sessões por conta.',
+  },
+  'overview-trend': {
+    title: 'Tendência de Usuários Ativos (24h)',
+    tooltip: 'Série horária das últimas 24 horas com usuários distintos, sessões ativas e eventos GraphQL/Auth registrados.',
+  },
+  'overview-http': {
+    title: 'Códigos HTTP por Sistema (24h)',
+    tooltip: 'Distribuição empilhada e taxas percentuais de respostas 2xx (Sucesso), 4xx (Negado) e 5xx (Erro) por sistema.',
+  },
+  'overview-edge': {
+    title: 'Métricas de Borda & SQLite WAL',
+    tooltip: 'Desempenho de Edge Cache, leituras/gravações SQLite WAL, versões KV e fila assíncrona de auditoria.',
+  },
+  'overview-health': {
+    title: 'Histórico de Saúde do Sistema',
+    tooltip: 'Registro completo de transições de latência entre Saudável (< 100ms), Atenção (100–299ms) e Crítica (≥ 300ms).',
+  },
+  'overview-alerts': {
+    title: 'Alertas Recentes',
+    tooltip: 'Monitoramento detalhado de tentativas de acesso não autorizadas, falhas de 2FA e bloqueios RBAC via SSE e GraphQL.',
+  },
+  'overview-audit': {
+    title: 'Logs de Auditoria',
+    tooltip: 'Trilha completa de auditoria LGPD-safe via GraphQL com busca, filtros avançados, exportação CSV e inspeção JSON.',
+  },
+};
+
 interface KeyStatsState {
   activeUsers: number;
   totalUsers: number;
   mfaAdoptedUsers: number;
+  totpUsers: number;
+  smsUsers: number;
   validTokens: number;
   revokedOrExpiredTokens: number;
   recentWarnings: number;
@@ -173,13 +252,22 @@ interface HttpStatusSystemRow {
 interface ActiveUsersTrendChartProps {
   data: HourlyTrendPoint[];
   diagnostics: DiagnosticHeaders | null;
+  compact?: boolean;
+  onDetail?: () => void;
 }
 
-const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, diagnostics }) => {
+const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({
+  data,
+  diagnostics,
+  compact = false,
+  onDetail,
+}) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [width, setWidth] = useState(760);
   const [hovered, setHovered] = useState<{ point: HourlyTrendPoint; x: number; y: number } | null>(null);
+
+  const chartHeight = compact ? 130 : 230;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -198,8 +286,10 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
     const svgEl = svgRef.current;
     if (!svgEl || data.length === 0) return;
 
-    const height = 220;
-    const margin = { top: 16, right: 20, bottom: 28, left: 38 };
+    const height = chartHeight;
+    const margin = compact
+      ? { top: 10, right: 14, bottom: 22, left: 30 }
+      : { top: 16, right: 20, bottom: 28, left: 38 };
     const innerWidth = Math.max(120, width - margin.left - margin.right);
     const innerHeight = height - margin.top - margin.bottom;
 
@@ -209,7 +299,7 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
     const defs = svg.append('defs');
     const grad = defs
       .append('linearGradient')
-      .attr('id', 'activeUsersAreaGrad')
+      .attr('id', compact ? 'activeUsersAreaGradCompact' : 'activeUsersAreaGradFull')
       .attr('x1', '0%')
       .attr('y1', '0%')
       .attr('x2', '0%')
@@ -226,8 +316,7 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
     const yMax = Math.max(4, Math.ceil(maxUsers * 1.25));
     const yScale = d3.scaleLinear().domain([0, yMax]).nice().range([innerHeight, 0]);
 
-    // Horizontal Gridlines
-    const yTicks = yScale.ticks(4);
+    const yTicks = yScale.ticks(compact ? 3 : 4);
     g.append('g')
       .selectAll('line')
       .data(yTicks)
@@ -240,17 +329,13 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
       .attr('stroke', 'rgba(148, 163, 184, 0.1)')
       .attr('stroke-dasharray', '3,3');
 
-    // Axes
     const xAxis = d3
       .axisBottom<Date>(xScale)
-      .ticks(6)
+      .ticks(compact ? 4 : 6)
       .tickFormat((d) => d3.timeFormat('%H:%M')(d));
-    const yAxis = d3.axisLeft<number>(yScale).ticks(4).tickFormat((d) => `${Math.round(d)}`);
+    const yAxis = d3.axisLeft<number>(yScale).ticks(compact ? 3 : 4).tickFormat((d) => `${Math.round(d)}`);
 
-    const xAxisG = g
-      .append('g')
-      .attr('transform', `translate(0,${innerHeight})`)
-      .call(xAxis);
+    const xAxisG = g.append('g').attr('transform', `translate(0,${innerHeight})`).call(xAxis);
     xAxisG.selectAll('path, line').attr('stroke', 'rgba(148, 163, 184, 0.2)');
     xAxisG
       .selectAll('text')
@@ -266,7 +351,6 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
       .style('font-family', '"JetBrains Mono", monospace')
       .style('font-size', '10px');
 
-    // Area + Line
     const areaGen = d3
       .area<HourlyTrendPoint>()
       .x((d) => xScale(d.hourDate))
@@ -280,7 +364,10 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
       .y((d) => yScale(d.activeUsers))
       .curve(d3.curveMonotoneX);
 
-    g.append('path').datum(data).attr('fill', 'url(#activeUsersAreaGrad)').attr('d', areaGen);
+    g.append('path')
+      .datum(data)
+      .attr('fill', `url(#${compact ? 'activeUsersAreaGradCompact' : 'activeUsersAreaGradFull'})`)
+      .attr('d', areaGen);
 
     g.append('path')
       .datum(data)
@@ -289,7 +376,6 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
       .attr('stroke-width', 2)
       .attr('d', lineGen);
 
-    // Data point dots
     g.selectAll('circle.trend-dot')
       .data(data)
       .enter()
@@ -297,12 +383,11 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
       .attr('class', 'trend-dot')
       .attr('cx', (d) => xScale(d.hourDate))
       .attr('cy', (d) => yScale(d.activeUsers))
-      .attr('r', 2.8)
+      .attr('r', compact ? 2 : 2.8)
       .attr('fill', '#090D16')
       .attr('stroke', '#F6821F')
       .attr('stroke-width', 1.5);
 
-    // Interactive hover overlay
     const focusLine = g
       .append('line')
       .attr('y1', 0)
@@ -341,7 +426,7 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
         focusLine.style('opacity', 0);
         setHovered(null);
       });
-  }, [data, width]);
+  }, [data, width, chartHeight, compact]);
 
   const peakUsers = useMemo(() => Math.max(0, ...data.map((d) => d.activeUsers)), [data]);
   const currentUsers = data.length > 0 ? data[data.length - 1].activeUsers : 0;
@@ -349,27 +434,23 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
   return (
     <section
       aria-label="Tendência de Usuários Ativos nas Últimas 24 Horas"
-      className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4"
+      className={`bg-[#111827] border border-slate-800/90 rounded-lg ${compact ? 'p-4 space-y-2.5' : 'p-5 space-y-4'}`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-        <div className="flex items-center gap-2.5">
-          <TrendingUp className="w-4 h-4 text-[#F6821F]" />
-          <div>
-            <h2 className="text-sm font-semibold text-white">Tendência de Usuários Ativos (Últimas 24h)</h2>
-            <p className="text-[11px] text-slate-400">
-              Sessões ativas e acessos registrados pelos resolvedores GraphQL nas últimas 24 horas.
-            </p>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-[#F6821F] shrink-0" />
+          <h2 className="text-sm font-semibold text-white">Tendência de Usuários Ativos (24h)</h2>
+          <InfoTooltip text="Sessões ativas e acessos distintos registrados pelos resolvedores GraphQL nas últimas 24 horas." />
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono tabular-nums text-slate-400">
+        <div className="flex flex-wrap items-center gap-2.5 text-[11px] font-mono tabular-nums text-slate-400">
           <span>
             Atual: <strong className="text-white">{currentUsers}</strong>
           </span>
           <span aria-hidden="true">·</span>
           <span>
-            Pico 24h: <strong className="text-[#F6821F]">{peakUsers}</strong>
+            Pico: <strong className="text-[#F6821F]">{peakUsers}</strong>
           </span>
-          {diagnostics && (
+          {!compact && diagnostics && (
             <>
               <span aria-hidden="true">·</span>
               <span className={diagnostics.cacheStatus === 'HIT' ? 'text-emerald-400' : 'text-amber-400'}>
@@ -381,11 +462,21 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
               <span>SQL:{diagnostics.sqliteQueriesCount}</span>
             </>
           )}
+          {onDetail && (
+            <button
+              type="button"
+              onClick={onDetail}
+              className="inline-flex items-center gap-1 font-sans text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors ml-1"
+            >
+              <span>Detalhar</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
       <div ref={containerRef} className="relative w-full">
-        <svg ref={svgRef} width={width} height={220} className="w-full overflow-visible block" />
+        <svg ref={svgRef} width={width} height={chartHeight} className="w-full overflow-visible block" />
 
         {hovered && (
           <div
@@ -410,9 +501,15 @@ const ActiveUsersTrendChart: React.FC<ActiveUsersTrendChartProps> = ({ data, dia
 
 interface HttpStatusWidgetProps {
   data: HttpStatusSystemRow[];
+  compact?: boolean;
+  onDetail?: () => void;
 }
 
-const HttpStatusDistributionWidget: React.FC<HttpStatusWidgetProps> = ({ data }) => {
+const HttpStatusDistributionWidget: React.FC<HttpStatusWidgetProps> = ({
+  data,
+  compact = false,
+  onDetail,
+}) => {
   const totals = useMemo(() => {
     return data.reduce(
       (acc, row) => ({
@@ -427,19 +524,15 @@ const HttpStatusDistributionWidget: React.FC<HttpStatusWidgetProps> = ({ data })
   return (
     <section
       aria-label="Distribuição de Códigos HTTP (2xx, 4xx, 5xx) nas Últimas 24 Horas"
-      className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4"
+      className={`bg-[#111827] border border-slate-800/90 rounded-lg ${compact ? 'p-4 space-y-2.5' : 'p-5 space-y-4'}`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-        <div className="flex items-center gap-2.5">
-          <ServerCrash className="w-4 h-4 text-[#F6821F]" />
-          <div>
-            <h2 className="text-sm font-semibold text-white">Códigos HTTP por Sistema (Últimas 24h)</h2>
-            <p className="text-[11px] text-slate-400">
-              Distribuição de respostas 2xx, 4xx e 5xx entre todos os sistemas monitorados.
-            </p>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+        <div className="flex items-center gap-2">
+          <ServerCrash className="w-4 h-4 text-[#F6821F] shrink-0" />
+          <h2 className="text-sm font-semibold text-white">Códigos HTTP por Sistema (24h)</h2>
+          <InfoTooltip text="Distribuição de respostas 2xx (Sucesso), 4xx (Negado) e 5xx (Erro) entre todos os sistemas monitorados." />
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono tabular-nums text-slate-400">
+        <div className="flex flex-wrap items-center gap-2.5 text-[11px] font-mono tabular-nums text-slate-400">
           <span>
             2xx: <strong className="text-emerald-400">{totals.s2xx}</strong>
           </span>
@@ -451,12 +544,22 @@ const HttpStatusDistributionWidget: React.FC<HttpStatusWidgetProps> = ({ data })
           <span>
             5xx: <strong className="text-red-400">{totals.s5xx}</strong>
           </span>
+          {onDetail && (
+            <button
+              type="button"
+              onClick={onDetail}
+              className="inline-flex items-center gap-1 font-sans text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors ml-1"
+            >
+              <span>Detalhar</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="w-full h-[220px]">
+      <div className={`w-full ${compact ? 'h-[130px]' : 'h-[230px]'}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 16, left: -12, bottom: 4 }}>
+          <BarChart data={data} margin={{ top: 8, right: 12, left: -14, bottom: 2 }}>
             <CartesianGrid stroke="rgba(148, 163, 184, 0.1)" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="systemSlug"
@@ -485,13 +588,15 @@ const HttpStatusDistributionWidget: React.FC<HttpStatusWidgetProps> = ({ data })
                 return row ? `${row.systemName} (${row.systemSlug})` : String(_label);
               }}
             />
-            <Legend
-              wrapperStyle={{
-                fontSize: '11px',
-                fontFamily: '"JetBrains Mono", monospace',
-                paddingTop: '4px',
-              }}
-            />
+            {!compact && (
+              <Legend
+                wrapperStyle={{
+                  fontSize: '11px',
+                  fontFamily: '"JetBrains Mono", monospace',
+                  paddingTop: '4px',
+                }}
+              />
+            )}
             <Bar dataKey="s2xx" name="2xx Sucesso" stackId="http" fill="#10b981" />
             <Bar dataKey="s4xx" name="4xx Negado" stackId="http" fill="#F6821F" />
             <Bar dataKey="s5xx" name="5xx Erro" stackId="http" fill="#ef4444" radius={[3, 3, 0, 0]} />
@@ -508,6 +613,9 @@ interface RecentAlertsListProps {
   sseConnected: boolean;
   refreshIntervalMs: RefreshIntervalOption;
   onMarkAllRead: () => void;
+  expanded?: boolean;
+  maxItems?: number;
+  onDetail?: () => void;
 }
 
 function isSecurityAlertLog(log: Pick<AuditLog, 'status' | 'action'>): boolean {
@@ -520,11 +628,18 @@ function isSecurityAlertLog(log: Pick<AuditLog, 'status' | 'action'>): boolean {
   );
 }
 
+function classifyAlertCategory(action: string): Exclude<AlertCategoryFilter, 'all'> {
+  if (/MFA/i.test(action)) return 'mfa';
+  if (/LOGIN|AUTH/i.test(action)) return 'auth';
+  return 'rbac';
+}
+
 function classifyAlertLabel(action: string): { title: string; tone: 'amber' | 'red' } {
-  if (/MFA/i.test(action)) {
+  const cat = classifyAlertCategory(action);
+  if (cat === 'mfa') {
     return { title: 'Falha de 2FA', tone: 'amber' };
   }
-  if (/LOGIN|AUTH/i.test(action)) {
+  if (cat === 'auth') {
     return { title: 'Tentativa de Acesso Não Autorizada', tone: 'red' };
   }
   return { title: 'Acesso Negado (RBAC / Política)', tone: 'amber' };
@@ -536,69 +651,124 @@ const RecentAlertsList: React.FC<RecentAlertsListProps> = ({
   sseConnected,
   refreshIntervalMs,
   onMarkAllRead,
+  expanded = false,
+  maxItems = 15,
+  onDetail,
 }) => {
   const [inspectingAlert, setInspectingAlert] = useState<AuditLog | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<AlertCategoryFilter>('all');
+
   const pollingLabel =
     refreshIntervalMs === 0
-      ? 'Polling desativado'
+      ? 'Polling off'
       : refreshIntervalMs === 60000
         ? 'Polling 1min'
         : `Polling ${refreshIntervalMs / 1000}s`;
+
+  const counts = useMemo(() => {
+    let mfa = 0;
+    let auth = 0;
+    let rbac = 0;
+    for (const a of alerts) {
+      const cat = classifyAlertCategory(a.action);
+      if (cat === 'mfa') mfa += 1;
+      else if (cat === 'auth') auth += 1;
+      else rbac += 1;
+    }
+    return { mfa, auth, rbac };
+  }, [alerts]);
+
+  const displayedAlerts = useMemo(() => {
+    const filtered =
+      categoryFilter === 'all'
+        ? alerts
+        : alerts.filter((a) => classifyAlertCategory(a.action) === categoryFilter);
+    return filtered.slice(0, expanded ? 50 : maxItems);
+  }, [alerts, categoryFilter, expanded, maxItems]);
 
   return (
     <section
       aria-label="Alertas Recentes de Segurança"
       className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden"
     >
-      <div className="px-5 py-3.5 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+      <div className="px-4 py-3 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2">
           <AlertOctagon
-            className={`w-4 h-4 ${alerts.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}
+            className={`w-4 h-4 shrink-0 ${alerts.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}
           />
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-white">Alertas Recentes</h2>
-              {unreadIds.size > 0 && (
-                <span className="text-[11px] font-mono tabular-nums text-amber-400">
-                  · {unreadIds.size} novo{unreadIds.size > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Monitoramento em tempo real de tentativas de acesso não autorizadas e falhas de autenticação 2FA.
-            </p>
-          </div>
+          <h2 className="text-sm font-semibold text-white">Alertas Recentes</h2>
+          <InfoTooltip text="Monitoramento em tempo real de tentativas de acesso não autorizadas e falhas de autenticação 2FA." />
+          {unreadIds.size > 0 && (
+            <span className="text-[11px] font-mono tabular-nums text-amber-400">
+              · {unreadIds.size} novo{unreadIds.size > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
-          <span>{sseConnected ? `SSE tempo real · ${pollingLabel}` : pollingLabel}</span>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-slate-400">
+          {expanded && (
+            <div className="flex flex-wrap items-center gap-1 font-sans mr-1">
+              {(
+                [
+                  { id: 'all', label: `Todos (${alerts.length})` },
+                  { id: 'auth', label: `Acesso (${counts.auth})` },
+                  { id: 'mfa', label: `2FA (${counts.mfa})` },
+                  { id: 'rbac', label: `RBAC (${counts.rbac})` },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setCategoryFilter(opt.id)}
+                  className={`px-2 py-1 text-[11px] font-medium rounded border transition-colors whitespace-nowrap ${
+                    categoryFilter === opt.id
+                      ? 'bg-[#F6821F]/15 border-[#F6821F]/60 text-white'
+                      : 'bg-[#090D16] border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <span>{sseConnected ? `SSE · ${pollingLabel}` : pollingLabel}</span>
           {unreadIds.size > 0 && (
             <button
               type="button"
               onClick={onMarkAllRead}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs font-sans font-medium bg-[#090D16] border border-slate-700 hover:border-slate-500 text-slate-200 rounded transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-sans font-medium bg-[#090D16] border border-slate-700 hover:border-slate-500 text-slate-200 rounded transition-colors"
             >
-              <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Marcar como lidos</span>
+              <CheckCheck className="w-3 h-3 text-emerald-400" />
+              <span>Marcar lidos</span>
+            </button>
+          )}
+          {onDetail && (
+            <button
+              type="button"
+              onClick={onDetail}
+              className="inline-flex items-center gap-1 font-sans text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors"
+            >
+              <span>Detalhar</span>
+              <ArrowRight className="w-3 h-3" />
             </button>
           )}
         </div>
       </div>
 
-      {alerts.length === 0 ? (
-        <div className="px-5 py-6 text-center text-xs text-slate-500">
-          Nenhuma tentativa de acesso não autorizada ou falha de 2FA detectada nas últimas horas.
+      {displayedAlerts.length === 0 ? (
+        <div className="px-4 py-5 text-center text-xs text-slate-500">
+          Nenhuma tentativa de acesso não autorizada ou falha de 2FA detectada.
         </div>
       ) : (
-        <div className="divide-y divide-slate-800/60 max-h-72 overflow-y-auto">
-          {alerts.slice(0, 15).map((alert) => {
+        <div className={`divide-y divide-slate-800/60 ${expanded ? '' : 'max-h-56 overflow-y-auto'}`}>
+          {displayedAlerts.map((alert) => {
             const meta = classifyAlertLabel(alert.action);
             const isUnread = unreadIds.has(alert.id);
             return (
               <div
                 key={alert.id}
                 onClick={() => setInspectingAlert(alert)}
-                className={`px-5 py-3 flex flex-wrap items-center justify-between gap-3 cursor-pointer transition-colors ${
+                className={`px-4 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                   isUnread ? 'bg-amber-950/20 hover:bg-amber-950/30' : 'hover:bg-slate-800/35'
                 }`}
               >
@@ -614,18 +784,18 @@ const RecentAlertsList: React.FC<RecentAlertsListProps> = ({
                     <span className="text-slate-500" aria-hidden="true">
                       ·
                     </span>
-                    <span className="font-mono text-slate-200">{alert.action}</span>
+                    <span className="font-mono text-slate-200 truncate">{alert.action}</span>
                     {isUnread && (
                       <span className="font-mono text-[11px] text-amber-300">· NOVO</span>
                     )}
                   </div>
                   <div className="text-[11px] font-mono text-slate-400 truncate">
-                    Ator {alert.actorMasked} · IP {alert.ipMasked} · Sistema {alert.systemSlug || 'global'} · Trace{' '}
-                    {alert.traceId}
+                    Ator {alert.actorMasked} · IP {alert.ipMasked} · {alert.systemSlug || 'global'}
+                    {expanded ? ` · Trace ${alert.traceId}` : ''}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[11px] font-mono tabular-nums text-slate-400">
                     {new Date(alert.createdAt).toLocaleTimeString('pt-BR')}
                   </span>
@@ -636,7 +806,7 @@ const RecentAlertsList: React.FC<RecentAlertsListProps> = ({
                       setInspectingAlert(alert);
                     }}
                     title="Inspecionar Alerta"
-                    className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
                   >
                     <Eye className="w-3.5 h-3.5" />
                   </button>
@@ -702,7 +872,12 @@ const RecentAlertsList: React.FC<RecentAlertsListProps> = ({
   );
 };
 
-export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onNotify }) => {
+export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({
+  token,
+  section = 'overview',
+  onNavigateSection,
+  onNotify,
+}) => {
   const [metrics, setMetrics] = useState<EdgeMetrics | null>(null);
   const [keyStats, setKeyStats] = useState<KeyStatsState | null>(null);
   const [systemsSnapshot, setSystemsSnapshot] = useState<Array<Pick<IamSystem, 'id' | 'name' | 'slug'>>>([]);
@@ -836,6 +1011,8 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
         activeUsers,
         totalUsers: baseData.complianceSummary.totalUsers,
         mfaAdoptedUsers: baseData.complianceSummary.mfaAdoptedUsers,
+        totpUsers: baseData.complianceSummary.totpUsers,
+        smsUsers: baseData.complianceSummary.smsUsers,
         validTokens,
         revokedOrExpiredTokens,
         recentWarnings,
@@ -888,6 +1065,10 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
           detailsJson: raw.details_json,
           createdAt: raw.created_at,
         };
+
+        setLogsSnapshot((prev) =>
+          prev.some((item) => item.id === mapped.id) ? prev : [mapped, ...prev.slice(0, 199)]
+        );
 
         if (isSecurityAlertLog(mapped) && !seenAlertIdsRef.current.has(mapped.id)) {
           seenAlertIdsRef.current.add(mapped.id);
@@ -969,7 +1150,6 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
     );
   }, []);
 
-  // Build 24 hourly buckets from GraphQL users, sessions, and auditLogs diagnostics
   const activeUsers24hTrend = useMemo<HourlyTrendPoint[]>(() => {
     const now = new Date();
     const currentHourStart = new Date(
@@ -1036,7 +1216,6 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
     return buckets;
   }, [usersSnapshot, logsSnapshot]);
 
-  // Compute HTTP Status Code (2xx, 4xx, 5xx) distribution across all monitored systems over past 24h
   const httpStatusBySystem24h = useMemo<HttpStatusSystemRow[]>(() => {
     const cutoffMs = Date.now() - 24 * 3600 * 1000;
     const map = new Map<string, HttpStatusSystemRow>();
@@ -1059,7 +1238,7 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
       const slug = log.systemSlug || 'global';
       if (!map.has(slug)) {
         map.set(slug, {
-          systemName: slug === 'global' ? 'Smarties Secure Gate Global' : slug,
+          systemName: slug === 'global' ? 'Identity Secure Gate (ISG) Global' : slug,
           systemSlug: slug,
           s2xx: 0,
           s4xx: 0,
@@ -1097,64 +1276,79 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
     void loadData();
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-xl font-semibold text-white">Visão Geral</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Estatísticas-chave, tendência de usuários ativos em 24h, métricas na borda e auditoria de acesso em tempo real.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-          <div className="flex items-center gap-1.5 bg-[#111827] border border-slate-700/80 rounded-md px-2.5 py-1.5">
-            <Timer className="w-3.5 h-3.5 text-[#F6821F] shrink-0" />
-            <label htmlFor="overview-refresh-interval" className="text-[11px] text-slate-400 whitespace-nowrap">
-              Atualização:
-            </label>
-            <select
-              id="overview-refresh-interval"
-              aria-label="Intervalo de atualização automática"
-              value={refreshIntervalMs}
-              onChange={(e) => setRefreshIntervalMs(Number(e.target.value) as RefreshIntervalOption)}
-              className="bg-transparent text-xs font-mono text-slate-100 focus:outline-none cursor-pointer"
-            >
-              <option value={10000} className="bg-[#090D16]">10s</option>
-              <option value={30000} className="bg-[#090D16]">30s</option>
-              <option value={60000} className="bg-[#090D16]">1min</option>
-              <option value={0} className="bg-[#090D16]">Desativado</option>
-            </select>
-          </div>
+  const go = (target: OverviewSection) => {
+    onNavigateSection?.(target);
+  };
+
+  const sectionInfo = SECTION_META[section];
+  const nowMs = Date.now();
+
+  const renderHeaderControls = () => (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center gap-2.5">
+        {section !== 'overview' && onNavigateSection && (
           <button
             type="button"
-            onClick={handleRefreshAll}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-[#111827] hover:bg-slate-800 border border-slate-700/80 text-slate-200 rounded-md transition-colors whitespace-nowrap"
+            onClick={() => go('overview')}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-[#111827] hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white rounded-md transition-colors"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Atualizar</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Visão Geral</span>
           </button>
-          <button
-            type="button"
-            onClick={handlePurgeCache}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md transition-colors whitespace-nowrap"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Expurgar</span>
-          </button>
+        )}
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-xl font-semibold text-white">{sectionInfo.title}</h1>
+          <InfoTooltip text={sectionInfo.tooltip} />
         </div>
       </div>
 
-      {/* Key Statistics Widget */}
-      <section aria-label="Estatísticas-Chave" className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Estatísticas-Chave</h2>
-          </div>
-          <span className="text-[11px] font-mono text-slate-400">Atualização ao vivo</span>
+      <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 bg-[#111827] border border-slate-700/80 rounded-md px-2.5 py-1.5">
+          <Timer className="w-3.5 h-3.5 text-[#F6821F] shrink-0" />
+          <label htmlFor="overview-refresh-interval" className="text-[11px] text-slate-400 whitespace-nowrap">
+            Atualização:
+          </label>
+          <select
+            id="overview-refresh-interval"
+            aria-label="Intervalo de atualização automática"
+            value={refreshIntervalMs}
+            onChange={(e) => setRefreshIntervalMs(Number(e.target.value) as RefreshIntervalOption)}
+            className="bg-transparent text-xs font-mono text-slate-100 focus:outline-none cursor-pointer"
+          >
+            <option value={10000} className="bg-[#090D16]">10s</option>
+            <option value={30000} className="bg-[#090D16]">30s</option>
+            <option value={60000} className="bg-[#090D16]">1min</option>
+            <option value={0} className="bg-[#090D16]">Desativado</option>
+          </select>
         </div>
+        <button
+          type="button"
+          onClick={handleRefreshAll}
+          className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-[#111827] hover:bg-slate-800 border border-slate-700/80 text-slate-200 rounded-md transition-colors whitespace-nowrap"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Atualizar</span>
+        </button>
+        <button
+          type="button"
+          onClick={handlePurgeCache}
+          className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-[#F6821F] hover:bg-[#e27316] text-slate-950 rounded-md transition-colors whitespace-nowrap"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Expurgar</span>
+        </button>
+      </div>
+    </div>
+  );
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-[#090D16] border border-slate-800 rounded-md p-4 space-y-1.5">
+  // Detailed Submenu: Estatísticas-Chave
+  if (section === 'overview-stats') {
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Usuários Ativos</span>
               <Users className="w-4 h-4 text-emerald-400" />
@@ -1163,136 +1357,743 @@ export const OverviewTelemetry: React.FC<OverviewTelemetryProps> = ({ token, onN
               {keyStats ? keyStats.activeUsers : '—'}
             </div>
             <div className="text-[11px] font-mono tabular-nums text-slate-400">
-              {keyStats
-                ? `${keyStats.totalUsers} cadastrados · ${keyStats.mfaAdoptedUsers} com 2FA ativo`
-                : 'Consultando GraphQL...'}
+              {keyStats ? `de ${keyStats.totalUsers} cadastrados` : 'Consultando GraphQL...'}
             </div>
           </div>
 
-          <div className="bg-[#090D16] border border-slate-800 rounded-md p-4 space-y-1.5">
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Adoção de 2FA</span>
+              <ShieldCheck className="w-4 h-4 text-[#F6821F]" />
+            </div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">
+              {keyStats ? keyStats.mfaAdoptedUsers : '—'}
+            </div>
+            <div className="text-[11px] font-mono tabular-nums text-slate-400">
+              {keyStats ? `${keyStats.totpUsers} TOTP · ${keyStats.smsUsers} SMS` : 'Consultando GraphQL...'}
+            </div>
+          </div>
+
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Tokens JWT Válidos</span>
-              <KeyRound className="w-4 h-4 text-[#F6821F]" />
+              <KeyRound className="w-4 h-4 text-sky-400" />
             </div>
             <div className="font-mono tabular-nums text-2xl font-semibold text-white">
               {keyStats ? keyStats.validTokens : '—'}
             </div>
             <div className="text-[11px] font-mono tabular-nums text-slate-400">
-              {keyStats
-                ? `${keyStats.revokedOrExpiredTokens} revogados ou expirados · sessões ativas`
-                : 'Consultando GraphQL...'}
+              {keyStats ? `${keyStats.revokedOrExpiredTokens} revogados ou expirados` : 'Consultando GraphQL...'}
             </div>
           </div>
 
-          <div className="bg-[#090D16] border border-slate-800 rounded-md p-4 space-y-1.5">
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>Alertas de Segurança Recentes</span>
-              <ShieldAlert
-                className={`w-4 h-4 ${
-                  keyStats && keyStats.recentWarnings > 0 ? 'text-amber-400' : 'text-slate-400'
-                }`}
-              />
+              <span>Alertas de Segurança</span>
+              <ShieldAlert className={`w-4 h-4 ${keyStats && keyStats.recentWarnings > 0 ? 'text-amber-400' : 'text-slate-400'}`} />
             </div>
             <div className="font-mono tabular-nums text-2xl font-semibold text-white">
               {keyStats ? keyStats.recentWarnings : '—'}
             </div>
             <div className="text-[11px] font-mono tabular-nums text-slate-400">
-              {keyStats
-                ? `${keyStats.deniedCount} negados · ${keyStats.errorCount} falhas nos últimos eventos`
-                : 'Consultando GraphQL...'}
+              {keyStats ? `${keyStats.deniedCount} negados · ${keyStats.errorCount} erros` : 'Consultando GraphQL...'}
+            </div>
+          </div>
+        </div>
+
+        <section className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-800/80 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#F6821F]" />
+              <h2 className="text-sm font-semibold text-white">Inventário de Usuários, 2FA e Sessões JWT</h2>
+              <InfoTooltip text="Detalhamento por usuário de status da conta, métodos 2FA configurados, versão de permissão e tokens ativos." />
+            </div>
+            <span className="text-[11px] font-mono tabular-nums text-slate-400">
+              {usersSnapshot.length} conta{usersSnapshot.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#090D16]/70 border-b border-slate-800 text-[11px] text-slate-400">
+                <tr>
+                  <th className="py-2.5 px-4 font-medium">Usuário</th>
+                  <th className="py-2.5 px-4 font-medium">Status</th>
+                  <th className="py-2.5 px-4 font-medium">2FA (TOTP / SMS)</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Sessões Ativas</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Expiradas/Revogadas</th>
+                  <th className="py-2.5 px-4 font-medium text-right">perm_ver</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Último Acesso</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-xs">
+                {usersSnapshot.map((u) => {
+                  const sessions = u.sessions || [];
+                  const activeCount = sessions.filter((s) => !s.revokedAt && Date.parse(s.expiresAt) > nowMs).length;
+                  const inactiveCount = sessions.length - activeCount;
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-4">
+                        <div className="font-medium text-white">{u.displayName}</div>
+                        <div className="text-[11px] font-mono text-slate-400">{u.email}</div>
+                      </td>
+                      <td className="py-2.5 px-4 font-mono">
+                        <span className={u.status === 'active' ? 'text-emerald-400' : 'text-red-400'}>
+                          {u.status === 'active' ? 'Ativo' : 'Bloqueado'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-300">
+                        {u.totpEnabled ? 'TOTP' : '—'} · {u.phoneVerified ? 'SMS' : '—'} ({u.mfaPreferredMethod})
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-emerald-400">
+                        {activeCount}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-400">
+                        {inactiveCount}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-300">
+                        v{u.permVersion}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-400 whitespace-nowrap">
+                        {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('pt-BR') : 'Nunca'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {usersSnapshot.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                      Nenhum dado de usuário carregado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // Detailed Submenu: Tendência (24h)
+  if (section === 'overview-trend') {
+    const totalEvents24h = activeUsers24hTrend.reduce((acc, p) => acc + p.eventsCount, 0);
+    const peakSessions = Math.max(0, ...activeUsers24hTrend.map((p) => p.activeSessions));
+    const avgUsers =
+      activeUsers24hTrend.length > 0
+        ? (activeUsers24hTrend.reduce((acc, p) => acc + p.activeUsers, 0) / activeUsers24hTrend.length).toFixed(1)
+        : '0.0';
+
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Média Horária de Usuários Ativos</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">{avgUsers}</div>
+          </div>
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Pico de Sessões Simultâneas (24h)</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-[#F6821F]">{peakSessions}</div>
+          </div>
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Eventos GraphQL / Auth (24h)</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-emerald-400">{totalEvents24h}</div>
+          </div>
+        </div>
+
+        <ActiveUsersTrendChart data={activeUsers24hTrend} diagnostics={lastDiag} />
+
+        <section className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-800/80 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-[#F6821F]" />
+              <h2 className="text-sm font-semibold text-white">Detalhamento por Janela Horária (24 Pontos)</h2>
+            </div>
+          </div>
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 bg-[#090D16] border-b border-slate-800 text-[11px] text-slate-400">
+                <tr>
+                  <th className="py-2.5 px-4 font-medium">Janela Horária</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Usuários Ativos</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Sessões Ativas</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Eventos GraphQL/Auth</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-xs font-mono tabular-nums">
+                {[...activeUsers24hTrend].reverse().map((pt) => (
+                  <tr key={pt.label} className="hover:bg-slate-800/30">
+                    <td className="py-2 px-4 text-slate-300">{pt.label}</td>
+                    <td className="py-2 px-4 text-right text-white font-semibold">{pt.activeUsers}</td>
+                    <td className="py-2 px-4 text-right text-[#F6821F]">{pt.activeSessions}</td>
+                    <td className="py-2 px-4 text-right text-slate-300">{pt.eventsCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // Detailed Submenu: Códigos HTTP (24h)
+  if (section === 'overview-http') {
+    const totals = httpStatusBySystem24h.reduce(
+      (acc, r) => ({
+        s2xx: acc.s2xx + r.s2xx,
+        s4xx: acc.s4xx + r.s4xx,
+        s5xx: acc.s5xx + r.s5xx,
+        total: acc.total + r.total,
+      }),
+      { s2xx: 0, s4xx: 0, s5xx: 0, total: 0 }
+    );
+    const successPct = totals.total > 0 ? ((totals.s2xx / totals.total) * 100).toFixed(1) : '100.0';
+
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Total de Requisições (24h)</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">{totals.total}</div>
+          </div>
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Respostas 2xx (Sucesso)</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-emerald-400">{totals.s2xx}</div>
+          </div>
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Respostas 4xx (Negado)</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-[#F6821F]">{totals.s4xx}</div>
+          </div>
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-1">
+            <div className="text-xs text-slate-400">Respostas 5xx (Erro) · Taxa 2xx</div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-red-400">
+              {totals.s5xx} <span className="text-sm text-slate-400">({successPct}%)</span>
+            </div>
+          </div>
+        </div>
+
+        <HttpStatusDistributionWidget data={httpStatusBySystem24h} />
+
+        <section className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-800/80 flex items-center gap-2">
+            <ServerCrash className="w-4 h-4 text-[#F6821F]" />
+            <h2 className="text-sm font-semibold text-white">Detalhamento de Códigos HTTP por Sistema</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#090D16]/70 border-b border-slate-800 text-[11px] text-slate-400">
+                <tr>
+                  <th className="py-2.5 px-4 font-medium">Sistema</th>
+                  <th className="py-2.5 px-4 font-medium">Slug</th>
+                  <th className="py-2.5 px-4 font-medium text-right">2xx Sucesso</th>
+                  <th className="py-2.5 px-4 font-medium text-right">4xx Negado</th>
+                  <th className="py-2.5 px-4 font-medium text-right">5xx Erro</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Total</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Taxa 2xx</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-xs font-mono tabular-nums">
+                {httpStatusBySystem24h.map((row) => {
+                  const rate = row.total > 0 ? ((row.s2xx / row.total) * 100).toFixed(1) : '100.0';
+                  return (
+                    <tr key={row.systemSlug} className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-4 font-sans font-medium text-white">{row.systemName}</td>
+                      <td className="py-2.5 px-4 text-slate-400">{row.systemSlug}</td>
+                      <td className="py-2.5 px-4 text-right text-emerald-400">{row.s2xx}</td>
+                      <td className="py-2.5 px-4 text-right text-[#F6821F]">{row.s4xx}</td>
+                      <td className="py-2.5 px-4 text-right text-red-400">{row.s5xx}</td>
+                      <td className="py-2.5 px-4 text-right text-white font-semibold">{row.total}</td>
+                      <td className="py-2.5 px-4 text-right text-slate-300">{rate}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // Detailed Submenu: Borda & SQLite WAL
+  if (section === 'overview-edge') {
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Taxa de Acerto no Cache</span>
+              <Zap className="w-3.5 h-3.5 text-[#F6821F]" />
+            </div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">
+              {metrics ? `${metrics.cacheHitRatioPct}%` : '—'}
+            </div>
+            <div className="text-[11px] font-mono tabular-nums text-slate-400">
+              {metrics ? `${metrics.cacheHits} HIT · ${metrics.cacheMisses} MISS` : 'Carregando...'}
+            </div>
+          </div>
+
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Latência GraphQL (p50 / p95)</span>
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">
+              {metrics ? `${metrics.p50LatencyMs} / ${metrics.p95LatencyMs} ms` : '—'}
+            </div>
+            <div className="text-[11px] font-mono tabular-nums text-slate-400">
+              {metrics ? `HIT ${metrics.avgHitLatencyMs}ms · MISS ${metrics.avgMissLatencyMs}ms` : 'Carregando...'}
+            </div>
+          </div>
+
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Perfil SQLite WAL (Leitura)</span>
+              <Database className="w-3.5 h-3.5 text-sky-400" />
+            </div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">
+              {metrics ? `${metrics.sqliteReadRatioPct}%` : '—'}
+            </div>
+            <div className="text-[11px] font-mono tabular-nums text-slate-400">
+              {metrics ? `${metrics.sqliteTotalReads} leituras · ${metrics.sqliteTotalWrites} gravações` : 'Carregando...'}
+            </div>
+          </div>
+
+          <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Versões KV & Streams SSE</span>
+              <Radio className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+            <div className="font-mono tabular-nums text-2xl font-semibold text-white">
+              {metrics ? `${metrics.kvVersionReads}` : '—'}
+            </div>
+            <div className="text-[11px] font-mono tabular-nums text-slate-400">
+              {metrics ? `${metrics.batchedAuditFlushes} lotes · ${metrics.activeSseStreams} streams SSE` : 'Carregando...'}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-3">
+            <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
+              <Zap className="w-4 h-4 text-[#F6821F]" />
+              <h2 className="text-sm font-semibold text-white">Edge Cache & Workers KV</h2>
+            </div>
+            <dl className="divide-y divide-slate-800/60 text-xs">
+              {[
+                ['Cache Hits', metrics?.cacheHits ?? '—'],
+                ['Cache Misses', metrics?.cacheMisses ?? '—'],
+                ['Cache Bypasses (Mutations / Sem Cache)', metrics?.cacheBypasses ?? '—'],
+                ['Expurgos Executados (Purges)', metrics?.cachePurges ?? '—'],
+                ['Entradas Ativas em Memória', metrics?.cachedEntriesCount ?? '—'],
+                ['Leituras de Versão KV (u_ver / s_ver)', metrics?.kvVersionReads ?? '—'],
+                ['Latência Média em Cache HIT', metrics ? `${metrics.avgHitLatencyMs} ms` : '—'],
+                ['Latência Média em Cache MISS', metrics ? `${metrics.avgMissLatencyMs} ms` : '—'],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="py-2 flex items-center justify-between gap-4">
+                  <dt className="text-slate-400">{label}</dt>
+                  <dd className="font-mono tabular-nums text-white font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+          <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-5 space-y-3">
+            <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
+              <Database className="w-4 h-4 text-sky-400" />
+              <h2 className="text-sm font-semibold text-white">SQLite WAL & Fila Assíncrona de Auditoria</h2>
+            </div>
+            <dl className="divide-y divide-slate-800/60 text-xs">
+              {[
+                ['Total de Leituras SQLite', metrics?.sqliteTotalReads ?? '—'],
+                ['Total de Gravações SQLite', metrics?.sqliteTotalWrites ?? '—'],
+                ['Proporção de Leitura (Read Ratio)', metrics ? `${metrics.sqliteReadRatioPct}%` : '—'],
+                ['Percentil p50 GraphQL', metrics ? `${metrics.p50LatencyMs} ms` : '—'],
+                ['Percentil p95 GraphQL', metrics ? `${metrics.p95LatencyMs} ms` : '—'],
+                ['Lotes de Auditoria Gravados (Flushes)', metrics?.batchedAuditFlushes ?? '—'],
+                ['Eventos Aguardando Flush na Fila', metrics?.queuedAuditLogs ?? '—'],
+                ['Clientes Conectados no Stream SSE', metrics?.activeSseStreams ?? '—'],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="py-2 flex items-center justify-between gap-4">
+                  <dt className="text-slate-400">{label}</dt>
+                  <dd className="font-mono tabular-nums text-white font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // Detailed Submenu: Histórico de Saúde
+  if (section === 'overview-health') {
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-[#111827] border border-emerald-800/50 rounded-lg p-4 flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <div className="text-xs font-semibold text-emerald-300">Saudável</div>
+              <div className="text-[11px] font-mono text-slate-400">Latência média &lt; 100 ms</div>
+            </div>
+          </div>
+          <div className="bg-[#111827] border border-amber-700/50 rounded-lg p-4 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <div className="text-xs font-semibold text-amber-300">Atenção</div>
+              <div className="text-[11px] font-mono text-slate-400">Latência média 100–299 ms</div>
+            </div>
+          </div>
+          <div className="bg-[#111827] border border-red-800/50 rounded-lg p-4 flex items-center gap-3">
+            <AlertOctagon className="w-5 h-5 text-red-400 shrink-0" />
+            <div>
+              <div className="text-xs font-semibold text-red-300">Crítica</div>
+              <div className="text-[11px] font-mono text-slate-400">Latência média ≥ 300 ms</div>
+            </div>
+          </div>
+        </div>
+
+        <HealthHistoryPanel events={healthHistory} sseConnected={sseConnected} expanded />
+      </div>
+    );
+  }
+
+  // Detailed Submenu: Alertas Recentes
+  if (section === 'overview-alerts') {
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+        <RecentAlertsList
+          alerts={recentAlerts}
+          unreadIds={unreadAlertIds}
+          sseConnected={sseConnected}
+          refreshIntervalMs={refreshIntervalMs}
+          onMarkAllRead={() => setUnreadAlertIds(new Set())}
+          expanded
+        />
+      </div>
+    );
+  }
+
+  // Detailed Submenu: Logs de Auditoria
+  if (section === 'overview-audit') {
+    return (
+      <div className="space-y-6">
+        {renderHeaderControls()}
+        <AuditLogs
+          token={token}
+          onNotify={onNotify}
+          refreshSignal={refreshTick}
+          onLogsUpdated={handleLogsUpdated}
+        />
+      </div>
+    );
+  }
+
+  // Synthetic Overview ('overview'): ALL sections on a single page in the most synthetic form possible
+  const compactAuditRows = logsSnapshot.slice(0, 5);
+  const compactHealthRows = healthHistory.slice(0, 3);
+
+  return (
+    <div className="space-y-4">
+      {renderHeaderControls()}
+
+      {/* 1. Estatísticas-Chave (Sintético) */}
+      <section aria-label="Estatísticas-Chave" className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-[#F6821F]" />
+            <h2 className="text-sm font-semibold text-white">Estatísticas-Chave</h2>
+            <InfoTooltip text="Resumo ao vivo de usuários ativos, tokens JWT válidos e alertas recentes de segurança." />
+          </div>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => go('overview-stats')}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors"
+            >
+              <span>Detalhar</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3.5 py-2.5 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] text-slate-400">Usuários Ativos</div>
+              <div className="font-mono tabular-nums text-xl font-semibold text-white">
+                {keyStats ? keyStats.activeUsers : '—'}
+              </div>
+              <div className="text-[10px] font-mono tabular-nums text-slate-500">
+                {keyStats ? `${keyStats.totalUsers} total · ${keyStats.mfaAdoptedUsers} 2FA` : '...'}
+              </div>
+            </div>
+            <Users className="w-4 h-4 text-emerald-400 shrink-0" />
+          </div>
+
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3.5 py-2.5 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] text-slate-400">Tokens JWT Válidos</div>
+              <div className="font-mono tabular-nums text-xl font-semibold text-white">
+                {keyStats ? keyStats.validTokens : '—'}
+              </div>
+              <div className="text-[10px] font-mono tabular-nums text-slate-500">
+                {keyStats ? `${keyStats.revokedOrExpiredTokens} revogados/exp.` : '...'}
+              </div>
+            </div>
+            <KeyRound className="w-4 h-4 text-[#F6821F] shrink-0" />
+          </div>
+
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3.5 py-2.5 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] text-slate-400">Alertas de Segurança</div>
+              <div className="font-mono tabular-nums text-xl font-semibold text-white">
+                {keyStats ? keyStats.recentWarnings : '—'}
+              </div>
+              <div className="text-[10px] font-mono tabular-nums text-slate-500">
+                {keyStats ? `${keyStats.deniedCount} negados · ${keyStats.errorCount} erros` : '...'}
+              </div>
+            </div>
+            <ShieldAlert
+              className={`w-4 h-4 shrink-0 ${
+                keyStats && keyStats.recentWarnings > 0 ? 'text-amber-400' : 'text-slate-400'
+              }`}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* 2 & 3. Tendência (24h) + Códigos HTTP (24h) Compactos */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <ActiveUsersTrendChart
+          data={activeUsers24hTrend}
+          diagnostics={lastDiag}
+          compact
+          onDetail={onNavigateSection ? () => go('overview-trend') : undefined}
+        />
+        <HttpStatusDistributionWidget
+          data={httpStatusBySystem24h}
+          compact
+          onDetail={onNavigateSection ? () => go('overview-http') : undefined}
+        />
+      </div>
+
+      {/* 4. Borda & SQLite WAL (Sintético) */}
+      <section aria-label="Borda e SQLite WAL" className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-[#F6821F]" />
+            <h2 className="text-sm font-semibold text-white">Borda & SQLite WAL</h2>
+            <InfoTooltip text="Indicadores condensados de Edge Cache HIT, latências GraphQL p50/p95, leitura SQLite WAL e KV/SSE." />
+          </div>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => go('overview-edge')}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors"
+            >
+              <span>Detalhar</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3 py-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>Cache HIT</span>
+              <Zap className="w-3 h-3 text-[#F6821F]" />
+            </div>
+            <div className="font-mono tabular-nums text-lg font-semibold text-white mt-0.5">
+              {metrics ? `${metrics.cacheHitRatioPct}%` : '—'}
+            </div>
+            <div className="text-[10px] font-mono tabular-nums text-slate-500 truncate">
+              {metrics ? `${metrics.cacheHits} HIT · ${metrics.cacheMisses} MISS` : '...'}
+            </div>
+          </div>
+
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3 py-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>Latência (p50/p95)</span>
+              <Activity className="w-3 h-3 text-emerald-400" />
+            </div>
+            <div className="font-mono tabular-nums text-lg font-semibold text-white mt-0.5">
+              {metrics ? `${metrics.p50LatencyMs}/${metrics.p95LatencyMs}ms` : '—'}
+            </div>
+            <div className="text-[10px] font-mono tabular-nums text-slate-500 truncate">
+              {metrics ? `HIT ${metrics.avgHitLatencyMs}ms · MISS ${metrics.avgMissLatencyMs}ms` : '...'}
+            </div>
+          </div>
+
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3 py-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>SQLite WAL Leitura</span>
+              <Database className="w-3 h-3 text-sky-400" />
+            </div>
+            <div className="font-mono tabular-nums text-lg font-semibold text-white mt-0.5">
+              {metrics ? `${metrics.sqliteReadRatioPct}%` : '—'}
+            </div>
+            <div className="text-[10px] font-mono tabular-nums text-slate-500 truncate">
+              {metrics ? `${metrics.sqliteTotalReads}R · ${metrics.sqliteTotalWrites}W` : '...'}
+            </div>
+          </div>
+
+          <div className="bg-[#090D16] border border-slate-800 rounded-md px-3 py-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>KV & Auditoria</span>
+              <Radio className="w-3 h-3 text-slate-400" />
+            </div>
+            <div className="font-mono tabular-nums text-lg font-semibold text-white mt-0.5">
+              {metrics ? `${metrics.kvVersionReads}` : '—'}
+            </div>
+            <div className="text-[10px] font-mono tabular-nums text-slate-500 truncate">
+              {metrics ? `${metrics.batchedAuditFlushes} lotes · ${metrics.activeSseStreams} SSE` : '...'}
             </div>
           </div>
         </div>
       </section>
 
-      {/* D3 24-Hour Active Users Trend & Recharts HTTP Status Code Distribution */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <ActiveUsersTrendChart data={activeUsers24hTrend} diagnostics={lastDiag} />
-        <HttpStatusDistributionWidget data={httpStatusBySystem24h} />
+      {/* 5 & 6. Histórico de Saúde + Alertas Recentes (Sintéticos em 2 colunas) */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <section aria-label="Histórico de Saúde (Resumo)" className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-800/80 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-[#F6821F]" />
+              <h2 className="text-sm font-semibold text-white">Histórico de Saúde</h2>
+              <InfoTooltip text="Últimas transições de latência do sistema persistidas no banco." />
+              <span className="text-[11px] font-mono tabular-nums text-slate-400">· {healthHistory.length}</span>
+            </div>
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => go('overview-health')}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors"
+              >
+                <span>Detalhar</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          {compactHealthRows.length === 0 ? (
+            <div className="px-4 py-5 text-center text-xs text-slate-500">Nenhuma transição registrada.</div>
+          ) : (
+            <div className="divide-y divide-slate-800/60">
+              {compactHealthRows.map((ev) => (
+                <div key={ev.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <span
+                        className={
+                          ev.newStatus === 'critical'
+                            ? 'text-red-400'
+                            : ev.newStatus === 'degraded'
+                              ? 'text-amber-400'
+                              : 'text-emerald-400'
+                        }
+                      >
+                        {ev.newStatus === 'critical' ? 'Crítica' : ev.newStatus === 'degraded' ? 'Atenção' : 'Saudável'}
+                      </span>
+                      <span className="text-slate-500">·</span>
+                      <span className="text-slate-300 truncate">{ev.reason}</span>
+                    </div>
+                  </div>
+                  <div className="font-mono tabular-nums text-[11px] text-slate-400 whitespace-nowrap shrink-0">
+                    {ev.avgLatencyMs.toFixed(1)}ms · {new Date(ev.createdAt).toLocaleTimeString('pt-BR')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <RecentAlertsList
+          alerts={recentAlerts}
+          unreadIds={unreadAlertIds}
+          sseConnected={sseConnected}
+          refreshIntervalMs={refreshIntervalMs}
+          onMarkAllRead={() => setUnreadAlertIds(new Set())}
+          maxItems={3}
+          onDetail={onNavigateSection ? () => go('overview-alerts') : undefined}
+        />
       </div>
 
-      {/* Edge & SQLite Performance KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Taxa de Acerto no Cache</span>
-            <Zap className="w-3.5 h-3.5 text-[#F6821F]" />
+      {/* 7. Logs de Auditoria (Sintético: últimos 5 registros) */}
+      <section aria-label="Logs de Auditoria (Resumo)" className="bg-[#111827] border border-slate-800/90 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-800/80 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#F6821F]" />
+            <h2 className="text-sm font-semibold text-white">Logs de Auditoria (Últimos Eventos)</h2>
+            <InfoTooltip text="Resumo dos 5 eventos de auditoria mais recentes. Abra o submenu para filtros completos, busca e CSV." />
           </div>
-          <div className="font-mono tabular-nums text-2xl font-semibold text-white">
-            {metrics ? `${metrics.cacheHitRatioPct}%` : '—'}
-          </div>
-          <div className="text-[11px] font-mono tabular-nums text-slate-400">
-            {metrics
-              ? `${metrics.cacheHits} HIT · ${metrics.cacheMisses} MISS · ${metrics.cachedEntriesCount} em RAM`
-              : 'Carregando...'}
-          </div>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => go('overview-audit')}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-[#F6821F] hover:text-amber-300 transition-colors"
+            >
+              <span>Detalhar</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
-
-        <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Latência GraphQL (p50 / p95)</span>
-            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+        {compactAuditRows.length === 0 ? (
+          <div className="px-4 py-5 text-center text-xs text-slate-500">
+            Nenhum evento de auditoria recente disponível para este perfil.
           </div>
-          <div className="font-mono tabular-nums text-2xl font-semibold text-white">
-            {metrics ? `${metrics.p50LatencyMs} / ${metrics.p95LatencyMs} ms` : '—'}
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#090D16]/60 border-b border-slate-800 text-[11px] text-slate-400">
+                <tr>
+                  <th className="py-2 px-4 font-medium">Horário</th>
+                  <th className="py-2 px-4 font-medium">Ação</th>
+                  <th className="py-2 px-4 font-medium">Ator</th>
+                  <th className="py-2 px-4 font-medium">Sistema</th>
+                  <th className="py-2 px-4 font-medium">Status</th>
+                  <th className="py-2 px-4 font-medium text-right">Duração</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-xs font-mono">
+                {compactAuditRows.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-800/30">
+                    <td className="py-2 px-4 tabular-nums text-slate-400 whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleTimeString('pt-BR')}
+                    </td>
+                    <td className="py-2 px-4 text-slate-200 truncate max-w-[220px]">{log.action}</td>
+                    <td className="py-2 px-4 text-slate-400 truncate max-w-[180px]">{log.actorMasked}</td>
+                    <td className="py-2 px-4 text-slate-400 whitespace-nowrap">{log.systemSlug || 'global'}</td>
+                    <td className="py-2 px-4 whitespace-nowrap">
+                      <span
+                        className={
+                          log.status === 'success'
+                            ? 'text-emerald-400'
+                            : log.status === 'denied'
+                              ? 'text-amber-400'
+                              : 'text-red-400'
+                        }
+                      >
+                        {log.status === 'success' ? 'Sucesso' : log.status === 'denied' ? 'Negado' : 'Erro'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4 text-right tabular-nums text-slate-300 whitespace-nowrap">
+                      {log.durationMs.toFixed(2)} ms
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="text-[11px] font-mono tabular-nums text-slate-400">
-            {metrics
-              ? `Média HIT ${metrics.avgHitLatencyMs}ms · MISS ${metrics.avgMissLatencyMs}ms`
-              : 'Carregando...'}
-          </div>
-        </div>
-
-        <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Perfil SQLite WAL (Leitura)</span>
-            <Database className="w-3.5 h-3.5 text-sky-400" />
-          </div>
-          <div className="font-mono tabular-nums text-2xl font-semibold text-white">
-            {metrics ? `${metrics.sqliteReadRatioPct}%` : '—'}
-          </div>
-          <div className="text-[11px] font-mono tabular-nums text-slate-400">
-            {metrics
-              ? `${metrics.sqliteTotalReads} leituras · ${metrics.sqliteTotalWrites} gravações`
-              : 'Carregando...'}
-          </div>
-        </div>
-
-        <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Versões KV e Lotes de Auditoria</span>
-            <Radio className="w-3.5 h-3.5 text-slate-400" />
-          </div>
-          <div className="font-mono tabular-nums text-2xl font-semibold text-white">
-            {metrics ? `${metrics.kvVersionReads}` : '—'}
-          </div>
-          <div className="text-[11px] font-mono tabular-nums text-slate-400">
-            {metrics
-              ? `${metrics.batchedAuditFlushes} lotes gravados · ${metrics.activeSseStreams} streams SSE`
-              : 'Carregando...'}
-          </div>
-        </div>
-      </div>
-
-      {/* Historical Log of System Health Status Transitions */}
-      <HealthHistoryPanel events={healthHistory} sseConnected={sseConnected} />
-
-      {/* Recent Security Alerts List (SSE + Polling) */}
-      <RecentAlertsList
-        alerts={recentAlerts}
-        unreadIds={unreadAlertIds}
-        sseConnected={sseConnected}
-        refreshIntervalMs={refreshIntervalMs}
-        onMarkAllRead={() => setUnreadAlertIds(new Set())}
-      />
-
-      {/* Searchable & Filterable Audit Logs */}
-      <AuditLogs
-        token={token}
-        onNotify={onNotify}
-        refreshSignal={refreshTick}
-        onLogsUpdated={handleLogsUpdated}
-      />
+        )}
+      </section>
     </div>
   );
 };

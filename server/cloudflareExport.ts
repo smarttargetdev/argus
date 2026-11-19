@@ -8,7 +8,7 @@ export interface CloudflareArtifactFile {
   content: string;
 }
 
-const WRANGLER_TOML = `name = "smarties-gate-edge-worker"
+const WRANGLER_TOML = `name = "isg-edge-worker"
 main = "src/worker.ts"
 compatibility_date = "2026-03-01"
 compatibility_flags = ["nodejs_compat"]
@@ -16,7 +16,7 @@ compatibility_flags = ["nodejs_compat"]
 # Cloudflare D1 (SQLite na Borda)
 [[d1_databases]]
 binding = "DB"
-database_name = "smarties-gate-d1"
+database_name = "isg-d1"
 database_id = "00000000-0000-0000-0000-000000000000"
 
 # Cloudflare Workers KV (Versionamento de permissoes, revogacao JTI e rate limit)
@@ -187,18 +187,18 @@ export default {
       return Response.json({ access_token: jwt, token_type: 'Bearer', expires_in: 3600 });
     }
 
-    return Response.json({ service: 'smarties-gate-edge-worker', status: 'ok' });
+    return Response.json({ service: 'isg-edge-worker', status: 'ok' });
   },
 };
 `;
 
-const DEPLOY_README = `# Smarties Secure Gate — Pacote Cloudflare Workers + D1 + KV
+const DEPLOY_README = `# Identity Secure Gate (ISG) — Pacote Cloudflare Workers + D1 + KV
 
 1. Crie o banco D1 na Cloudflare:
-   npx wrangler d1 create smarties-gate-d1
+   npx wrangler d1 create isg-d1
 
 2. Aplique o schema SQL otimizado para leitura e indices de cobertura:
-   npx wrangler d1 execute smarties-gate-d1 --file=./schema.d1.sql
+   npx wrangler d1 execute isg-d1 --file=./schema.d1.sql
 
 3. Crie o namespace KV para versoes de permissoes e revogacao instantanea de JWT:
    npx wrangler kv namespace create IAM_KV

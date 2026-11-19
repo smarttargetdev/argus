@@ -53,7 +53,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
   const [systems, setSystems] = useState<PublicSystemItem[]>([]);
   const [idps, setIdps] = useState<PublicIdpItem[]>([]);
   const [selectedSlug, setSelectedSlug] = useState('secure-gate');
-  const [platformName, setPlatformName] = useState('Smarties Secure Gate');
+  const [platformName, setPlatformName] = useState('Identity Secure Gate');
   const [executionEnvironment, setExecutionEnvironment] = useState<ExecutionEnvironment | null>(null);
 
   const [email, setEmail] = useState('');
@@ -328,10 +328,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
     <div className="min-h-screen bg-[#090D16] text-slate-100 flex flex-col justify-between px-6 py-8">
       <header className="max-w-6xl w-full mx-auto flex items-center justify-between gap-8 pb-6 border-b border-slate-800/80">
         <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-          <div className="w-8 h-8 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F]">
-            <Shield className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F] font-mono text-xs font-bold">
+            ISG
           </div>
-          <span className="font-display text-lg font-semibold tracking-tight text-white">{platformName}</span>
+          <span className="font-display text-lg font-semibold tracking-tight text-white">
+            {platformName}
+          </span>
         </div>
         <div className="hidden sm:flex items-center gap-3 text-xs text-slate-400">
           <span>OAuth 2.0 / OIDC</span>

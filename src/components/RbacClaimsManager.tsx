@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Trash2, Save, Shield, Edit3, X, KeyRound } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { IamSystem, Permission, Role } from '../types/iam';
 
 interface RbacClaimsManagerProps {
@@ -213,7 +214,7 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
 
   // Live JWT Payload Preview constructed from inspected role
   const previewJwtPayload = {
-    iss: 'https://smarties-secure-gate.edge.local',
+    iss: 'https://isg.edge.local',
     sub: 'usr-exemplo-01',
     aud: currentSystem?.slug || 'secure-gate',
     sys: currentSystem?.slug || 'secure-gate',
@@ -237,11 +238,9 @@ export const RbacClaimsManager: React.FC<RbacClaimsManagerProps> = ({ token, onN
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-display text-xl font-semibold text-white">Permissões de Acesso</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Inspecione o catálogo RBAC por sistema e abra os popups para configurar roles, permissões atômicas e claims personalizadas.
-          </p>
+          <InfoTooltip text="Inspecione o catálogo RBAC por sistema e abra os popups para configurar roles, permissões atômicas e claims personalizadas." />
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <select

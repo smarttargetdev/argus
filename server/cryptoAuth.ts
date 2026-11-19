@@ -16,7 +16,7 @@ import { db, type SystemRow, type UserRow } from './db.ts';
 import { getPlatformSettings } from './settings.ts';
 
 const MASTER_SECRET = process.env.IAM_MASTER_SECRET || 'smarties-gate-edge-master-secret-2026-dev-32b';
-const DEFAULT_JWT_ISSUER = process.env.IAM_JWT_ISSUER || 'https://smarties-gate.edge.local';
+const DEFAULT_JWT_ISSUER = process.env.IAM_JWT_ISSUER || 'https://isg.edge.local';
 
 interface PersistedRsaKeys {
   kid: string;
@@ -158,7 +158,7 @@ export async function generateTotpEnrollment(email: string): Promise<{
   otpauthUri: string;
   qrSvg: string;
 }> {
-  const issuerName = getPlatformSettings().platformName || 'Smarties Secure Gate';
+  const issuerName = getPlatformSettings().platformName || 'Identity Secure Gate';
   const totp = new OTPAuth.TOTP({
     issuer: issuerName,
     label: email,
@@ -183,7 +183,7 @@ export async function generateTotpEnrollment(email: string): Promise<{
 export function verifyTotpToken(secretBase32: string, code: string): boolean {
   const cleanCode = code.replace(/\s+/g, '');
   if (!/^\d{6}$/.test(cleanCode)) return false;
-  const issuerName = getPlatformSettings().platformName || 'Smarties Secure Gate';
+  const issuerName = getPlatformSettings().platformName || 'Identity Secure Gate';
   const totp = new OTPAuth.TOTP({
     issuer: issuerName,
     algorithm: 'SHA1',

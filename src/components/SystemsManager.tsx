@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Edit3, Trash2, Key, ShieldCheck, X } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { IamSystem } from '../types/iam';
 
 interface SystemsManagerProps {
@@ -211,11 +212,9 @@ export const SystemsManager: React.FC<SystemsManagerProps> = ({ token, onNotify,
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-display text-xl font-semibold text-white">Sistemas OAuth 2.0</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Gerenciamento via GraphQL de aplicações clientes, TTL de JWT, 2FA obrigatório e cache distribuído por sistema.
-          </p>
+          <InfoTooltip text="Gerenciamento via GraphQL de aplicações clientes, TTL de JWT, 2FA obrigatório e cache distribuído por sistema." />
         </div>
         <button
           type="button"

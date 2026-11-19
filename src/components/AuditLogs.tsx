@@ -14,6 +14,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { AuditLog, DiagnosticHeaders, IamSystem } from '../types/iam';
 
 export interface AuditLogsProps {
@@ -404,7 +405,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `smarties-secure-gate-audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `isg-audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     onNotify(`Exportados ${filteredLogs.length} registros de auditoria em CSV.`, 'success');
@@ -440,6 +441,7 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-[#F6821F]" />
                 <h2 className="text-sm font-semibold text-white">Logs de Auditoria</h2>
+                <InfoTooltip text="Trilha de auditoria LGPD-safe consultada via GraphQL com stream SSE em tempo real, filtros multi-faceta e exportação CSV." />
               </div>
               <span className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
                 <Radio className={`w-3.5 h-3.5 ${sseConnected ? 'text-emerald-400' : 'text-slate-500'}`} />

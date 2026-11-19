@@ -20,9 +20,15 @@ import {
   PanelLeftOpen,
   Maximize2,
   Minimize2,
+  ChevronDown,
+  ChevronRight,
+  TrendingUp,
+  ServerCrash,
+  Zap,
+  History,
 } from 'lucide-react';
 import { AuthGate } from './components/AuthGate';
-import { OverviewTelemetry } from './components/OverviewTelemetry';
+import { OverviewTelemetry, type OverviewSection } from './components/OverviewTelemetry';
 import { AuditLogs } from './components/AuditLogs';
 import { SystemsManager } from './components/SystemsManager';
 import { UsersManager } from './components/UsersManager';
@@ -39,7 +45,7 @@ import { useSystemHealth, type SystemHealthLevel } from './hooks/useSystemHealth
 import type { AuthSessionState, DiagnosticHeaders, PublicPlatformConfig } from './types/iam';
 
 type NavTab =
-  | 'overview'
+  | OverviewSection
   | 'systems'
   | 'users'
   | 'rbac'
@@ -80,6 +86,20 @@ const NAV_ITEMS: Array<{
   { id: 'profile', label: 'Perfil', group: 'self', icon: UserCircle2, shortcut: 'p' },
 ];
 
+const OVERVIEW_SUBMENUS: Array<{
+  id: OverviewSection;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'overview-stats', label: 'Estatísticas-Chave', icon: Users },
+  { id: 'overview-trend', label: 'Tendência (24h)', icon: TrendingUp },
+  { id: 'overview-http', label: 'Códigos HTTP (24h)', icon: ServerCrash },
+  { id: 'overview-edge', label: 'Borda & SQLite WAL', icon: Zap },
+  { id: 'overview-health', label: 'Histórico de Saúde', icon: History },
+  { id: 'overview-alerts', label: 'Alertas Recentes', icon: AlertOctagon },
+  { id: 'overview-audit', label: 'Logs de Auditoria', icon: ScrollText },
+];
+
 function inferToastVariant(message: string): ToastVariant {
   if (/erro|falha|inválid|invalido|não foi possível|sem permissão|bloquead|negad|expirad/i.test(message)) {
     return 'error';
@@ -107,6 +127,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
+  const [overviewMenuExpanded, setOverviewMenuExpanded] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isExpandedView, setIsExpandedView] = useState(false);
   const [shortcutChordPending, setShortcutChordPending] = useState(false);
@@ -291,8 +312,11 @@ export default function App() {
   }
 
   const isSuperAdmin = session.user.roles.includes('super_admin');
-  const platformName = publicConfig?.platformName || 'Smarties Secure Gate';
-  const activeNav = NAV_ITEMS.find((i) => i.id === activeTab);
+  const platformName = publicConfig?.platformName || 'Identity Secure Gate';
+  const activeOverviewSubmenu = OVERVIEW_SUBMENUS.find((s) => s.id === activeTab);
+  const activeNav = activeOverviewSubmenu
+    ? { id: activeOverviewSubmenu.id, label: `Visão Geral / ${activeOverviewSubmenu.label}` }
+    : NAV_ITEMS.find((i) => i.id === activeTab);
 
   return (
     <div className="min-h-screen bg-[#090D16] text-slate-100 flex">
@@ -310,11 +334,11 @@ export default function App() {
               }`}
             >
               {!isSidebarCollapsed && (
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F] shrink-0">
-                    <Shield className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-md bg-[#F6821F]/15 border border-[#F6821F]/40 flex items-center justify-center text-[#F6821F] font-mono text-[10px] font-bold shrink-0">
+                    ISG
                   </div>
-                  <span className="font-display text-sm font-semibold tracking-tight text-white whitespace-nowrap truncate">
+                  <span className="font-display text-xs font-semibold tracking-tight text-white whitespace-nowrap truncate">
                     {platformName}
                   </span>
                 </div>
@@ -342,7 +366,92 @@ export default function App() {
                 <div className="space-y-0.5">
                   {NAV_ITEMS.filter((i) => i.group === 'admin' && (!i.adminOnly || isSuperAdmin)).map((item) => {
                     const Icon = item.icon;
-                    const isActive = activeTab === item.id;
+                    const isOverviewGroup = item.id === 'overview';
+                    const isOverviewChildActive = isOverviewGroup && activeTab.startsWith('overview-');
+                    const isActive = activeTab === item.id || (isSidebarCollapsed && isOverviewChildActive);
+
+                    if (isOverviewGroup) {
+                      return (
+                        <div key={item.id} className="space-y-0.5">
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTab('overview');
+                                setOverviewMenuExpanded(true);
+                              }}
+                              title={`${item.label} (g ${item.shortcut})`}
+                              aria-label={item.label}
+                              className={`flex-1 flex items-center ${
+                                isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-between gap-2 px-2.5 py-2'
+                              } rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                                isActive
+                                  ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
+                                  : isOverviewChildActive
+                                    ? 'bg-slate-800/40 text-slate-100 border border-slate-700/60'
+                                    : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2.5 min-w-0">
+                                <Icon
+                                  className={`w-3.5 h-3.5 shrink-0 ${
+                                    isActive || isOverviewChildActive ? 'text-[#F6821F]' : 'text-slate-400'
+                                  }`}
+                                />
+                                {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                              </span>
+                              {!isSidebarCollapsed && (
+                                <span className="text-[10px] font-mono text-slate-600 shrink-0">g {item.shortcut}</span>
+                              )}
+                            </button>
+                            {!isSidebarCollapsed && (
+                              <button
+                                type="button"
+                                onClick={() => setOverviewMenuExpanded((prev) => !prev)}
+                                aria-label={overviewMenuExpanded ? 'Recolher submenus da Visão Geral' : 'Expandir submenus da Visão Geral'}
+                                aria-expanded={overviewMenuExpanded}
+                                className="p-1.5 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 transition-colors shrink-0"
+                              >
+                                {overviewMenuExpanded ? (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          {!isSidebarCollapsed && overviewMenuExpanded && (
+                            <div className="ml-3.5 pl-2 border-l border-slate-800/90 space-y-0.5 py-0.5">
+                              {OVERVIEW_SUBMENUS.map((sub) => {
+                                const SubIcon = sub.icon;
+                                const isSubActive = activeTab === sub.id;
+                                return (
+                                  <button
+                                    key={sub.id}
+                                    type="button"
+                                    onClick={() => setActiveTab(sub.id)}
+                                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
+                                      isSubActive
+                                        ? 'bg-[#F6821F]/15 text-white border border-[#F6821F]/40'
+                                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 border border-transparent'
+                                    }`}
+                                  >
+                                    <SubIcon
+                                      className={`w-3 h-3 shrink-0 ${
+                                        isSubActive ? 'text-[#F6821F]' : 'text-slate-500'
+                                      }`}
+                                    />
+                                    <span className="truncate">{sub.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
                     return (
                       <button
                         key={item.id}
@@ -471,7 +580,9 @@ export default function App() {
         {/* Top Bar (Clean Breadcrumb + Last GraphQL Edge Diagnostic + Session Countdown + Sign Out) */}
         <header className="h-14 px-6 border-b border-slate-800/80 bg-[#090D16] flex items-center justify-between gap-6 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 whitespace-nowrap truncate">
-            <span>{platformName}</span>
+            <span>
+              {platformName} <span className="font-mono text-[#F6821F]">(ISG)</span>
+            </span>
             <span aria-hidden="true">/</span>
             <span className="font-mono text-slate-300">{session.system.slug}</span>
             {publicConfig?.executionEnvironment && (
@@ -634,7 +745,18 @@ export default function App() {
 
         {/* Active Viewport */}
         <main className={`flex-1 p-6 max-w-[1360px] w-full ${isExpandedView ? 'mx-auto' : ''}`}>
-          {activeTab === 'overview' && <OverviewTelemetry key={refreshTick} token={session.token} onNotify={notify} />}
+          {(activeTab === 'overview' || activeTab.startsWith('overview-')) && (
+            <OverviewTelemetry
+              key={refreshTick}
+              token={session.token}
+              section={activeTab as OverviewSection}
+              onNavigateSection={(sec) => {
+                setActiveTab(sec);
+                setOverviewMenuExpanded(true);
+              }}
+              onNotify={notify}
+            />
+          )}
           {activeTab === 'systems' && (
             <SystemsManager
               token={session.token}

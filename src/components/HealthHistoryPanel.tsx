@@ -7,11 +7,13 @@ import {
   CheckCircle2,
   History,
 } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 import type { SystemHealthEvent } from '../types/iam';
 
 interface HealthHistoryPanelProps {
   events: SystemHealthEvent[];
   sseConnected: boolean;
+  expanded?: boolean;
 }
 
 type StatusFilter = 'all' | 'critical' | 'degraded' | 'healthy';
@@ -52,6 +54,7 @@ const STATUS_META: Record<
 export const HealthHistoryPanel: React.FC<HealthHistoryPanelProps> = ({
   events,
   sseConnected,
+  expanded = false,
 }) => {
   const [filter, setFilter] = useState<StatusFilter>('all');
 
@@ -80,16 +83,12 @@ export const HealthHistoryPanel: React.FC<HealthHistoryPanelProps> = ({
       <div className="px-5 py-3.5 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <History className="w-4 h-4 text-[#F6821F] shrink-0" />
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-white">Histórico de Saúde do Sistema</h2>
-              <span className="text-[11px] font-mono tabular-nums text-slate-400">
-                · {events.length} registro{events.length === 1 ? '' : 's'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Transições persistidas entre Saudável (&lt; 100ms), Atenção (100–299ms) e Crítica (≥ 300ms).
-            </p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-white">Histórico de Saúde do Sistema</h2>
+            <InfoTooltip text="Transições persistidas entre Saudável (< 100ms), Atenção (100–299ms) e Crítica (≥ 300ms)." />
+            <span className="text-[11px] font-mono tabular-nums text-slate-400">
+              · {events.length} registro{events.length === 1 ? '' : 's'}
+            </span>
           </div>
         </div>
 
@@ -127,7 +126,7 @@ export const HealthHistoryPanel: React.FC<HealthHistoryPanelProps> = ({
           <span>Nenhuma transição de saúde encontrada para o filtro selecionado.</span>
         </div>
       ) : (
-        <div className="divide-y divide-slate-800/60 max-h-72 overflow-y-auto">
+        <div className={`divide-y divide-slate-800/60 ${expanded ? '' : 'max-h-72 overflow-y-auto'}`}>
           {filteredEvents.map((ev) => {
             const nextMeta = STATUS_META[ev.newStatus] ?? STATUS_META.healthy;
             const NextIcon = nextMeta.icon;

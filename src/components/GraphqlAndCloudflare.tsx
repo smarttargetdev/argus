@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Play, Download, Code2, Zap } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { DiagnosticHeaders } from '../types/iam';
 
 interface GraphqlAndCloudflareProps {
@@ -100,11 +101,9 @@ export const GraphqlAndCloudflare: React.FC<GraphqlAndCloudflareProps> = ({ toke
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center gap-2">
         <h1 className="font-display text-xl font-semibold text-white">Infraestrutura e Borda</h1>
-        <p className="text-xs text-slate-400 mt-1">
-          Teste o cache distribuído sensível à expiração JWT e baixe o pacote pronto para deploy na borda da Cloudflare.
-        </p>
+        <InfoTooltip text="Teste o cache distribuído sensível à expiração JWT e baixe o pacote pronto para deploy na borda da Cloudflare." />
       </div>
 
       {/* GraphQL Explorer with Live Cache & SQLite Read Counter */}
@@ -175,11 +174,9 @@ export const GraphqlAndCloudflare: React.FC<GraphqlAndCloudflareProps> = ({ toke
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
             <Code2 className="w-4 h-4 text-[#F6821F]" />
-            <div>
+            <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-white">Pacote Pronto Cloudflare Workers + D1 + Workers KV</h2>
-              <p className="text-xs text-slate-400">
-                Manifesto Wrangler, migração D1 com índices de cobertura e Worker com Cache API limitada ao exp do JWT.
-              </p>
+              <InfoTooltip text="Manifesto Wrangler, migração D1 com índices de cobertura e Worker com Cache API limitada ao exp do JWT." />
             </div>
           </div>
           <a

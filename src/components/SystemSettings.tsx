@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
 import { playHealthAlertSound } from '../lib/healthAlertAudio';
+import { InfoTooltip } from './InfoTooltip';
 import type { ExecutionEnvironment, PlatformSystemSettings } from '../types/iam';
 
 interface SystemSettingsProps {
@@ -363,12 +364,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-display text-xl font-semibold text-white">Configurações do Sistema</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Parametrização global exclusiva do administrador: ambiente de execução, JWT/OAuth 2.0, segurança 2FA, borda
-            SQLite/Cache e conformidade LGPD.
-          </p>
+          <InfoTooltip text="Parametrização global exclusiva do administrador: ambiente de execução, JWT/OAuth 2.0, segurança 2FA, borda SQLite/Cache e conformidade LGPD." />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -474,11 +472,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Server className="w-4 h-4 text-[#F6821F]" />
-                <div>
+                <div className="flex items-center gap-2">
                   <h2 className="text-sm font-semibold text-white">Ambiente de Execução e Identidade da Plataforma</h2>
-                  <p className="text-xs text-slate-400">
-                    Define o comportamento da tela de autenticação, exposição de contas de demonstração e emissor OIDC.
-                  </p>
+                  <InfoTooltip text="Define o comportamento da tela de autenticação, exposição de contas de demonstração e emissor OIDC." />
                 </div>
               </div>
 
@@ -548,11 +544,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <KeyRound className="w-4 h-4 text-[#F6821F]" />
-                <div>
+                <div className="flex items-center gap-2">
                   <h2 className="text-sm font-semibold text-white">Tokens JWT, Sessão e OAuth 2.0</h2>
-                  <p className="text-xs text-slate-400">
-                    Valores padrão aplicados a novos sistemas e janelas temporais de autorização na borda.
-                  </p>
+                  <InfoTooltip text="Valores padrão aplicados a novos sistemas e janelas temporais de autorização na borda." />
                 </div>
               </div>
 
@@ -631,11 +625,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Lock className="w-4 h-4 text-[#F6821F]" />
-                <div>
+                <div className="flex items-center gap-2">
                   <h2 className="text-sm font-semibold text-white">Segurança, Autenticação e Segundo Fator (2FA)</h2>
-                  <p className="text-xs text-slate-400">
-                    Regras globais de senha, bloqueio contra força bruta, auto-registro, TOTP/SMS e federação JIT.
-                  </p>
+                  <InfoTooltip text="Regras globais de senha, bloqueio contra força bruta, auto-registro, TOTP/SMS e federação JIT." />
                 </div>
               </div>
 
@@ -728,11 +720,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Database className="w-4 h-4 text-[#F6821F]" />
-                <div>
+                <div className="flex items-center gap-2">
                   <h2 className="text-sm font-semibold text-white">Edge Cache, SQLite WAL e Auditoria</h2>
-                  <p className="text-xs text-slate-400">
-                    Controle de cache distribuído, escrita em lote no SQLite WAL, mascaramento de PII e stream SSE.
-                  </p>
+                  <InfoTooltip text="Controle de cache distribuído, escrita em lote no SQLite WAL, mascaramento de PII e stream SSE." />
                 </div>
               </div>
 
@@ -818,14 +808,11 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
                   ) : (
                     <VolumeX className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
                   )}
-                  <div>
-                    <div className="text-xs font-medium text-white">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-white">
                       Notificação sonora de Saúde do Sistema
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Emite um alerta sonoro quando o status mudar para <span className="font-mono text-amber-300">degraded</span>{' '}
-                      (Atenção) ou <span className="font-mono text-red-300">critical</span> (Latência Crítica).
-                    </p>
+                    </span>
+                    <InfoTooltip text="Emite um alerta sonoro quando o status mudar para degraded (Atenção) ou critical (Latência Crítica)." />
                   </div>
                 </div>
 
@@ -868,11 +855,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             <section className="bg-[#111827] border border-slate-800/90 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <ShieldCheck className="w-4 h-4 text-[#F6821F]" />
-                <div>
+                <div className="flex items-center gap-2">
                   <h2 className="text-sm font-semibold text-white">Conformidade LGPD e Privacidade do Titular</h2>
-                  <p className="text-xs text-slate-400">
-                    Políticas padrão de privacidade, consentimento explícito, portabilidade JSON e direito ao esquecimento.
-                  </p>
+                  <InfoTooltip text="Políticas padrão de privacidade, consentimento explícito, portabilidade JSON e direito ao esquecimento." />
                 </div>
               </div>
 

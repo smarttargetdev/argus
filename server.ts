@@ -1178,7 +1178,7 @@ async function startServer() {
   app.get('/api/cloudflare/download', async (_req, res) => {
     const zipBuffer = await createCloudflareBundleZip();
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="smarties-gate-cloudflare-d1-bundle.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="isg-cloudflare-d1-bundle.zip"');
     res.send(zipBuffer);
   });
 
@@ -1213,6 +1213,6 @@ async function startServer() {
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start Smarties Secure Gate server:', err);
+  console.error('Failed to start Identity Secure Gate (ISG) server:', err);
   process.exit(1);
 });

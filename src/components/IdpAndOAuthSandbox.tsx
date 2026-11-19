@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Globe, Play, CheckCircle2, KeyRound, Save, X, SlidersHorizontal } from 'lucide-react';
 import { gqlRequest } from '../lib/graphqlClient';
+import { InfoTooltip } from './InfoTooltip';
 import type { IamSystem, IdentityProvider } from '../types/iam';
 
 interface IdpAndOAuthSandboxProps {
@@ -46,7 +47,7 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
   const [sandboxClientId, setSandboxClientId] = useState('cid_vektor_core_2026');
   const [sandboxEmail, setSandboxEmail] = useState('administrator@smarttarget.com.br');
   const [sandboxPassword, setSandboxPassword] = useState('Vektor@2026!');
-  const [pkceVerifier, setPkceVerifier] = useState('smarties_secure_gate_pkce_verifier_demo_99123');
+  const [pkceVerifier, setPkceVerifier] = useState('isg_pkce_verifier_demo_99123');
   const [authCode, setAuthCode] = useState('');
   const [sandboxMfaToken, setSandboxMfaToken] = useState('');
   const [sandboxMfaCode, setSandboxMfaCode] = useState('');
@@ -196,11 +197,9 @@ export const IdpAndOAuthSandbox: React.FC<IdpAndOAuthSandboxProps> = ({ token, o
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center gap-2">
         <h1 className="font-display text-xl font-semibold text-white">Provedores de Identidade</h1>
-        <p className="text-xs text-slate-400 mt-1">
-          Configure provedores Google, GitHub, OIDC genérico e Microsoft Entra ID / SAML em popups dedicados e teste o fluxo Authorization Code + PKCE ao vivo.
-        </p>
+        <InfoTooltip text="Configure provedores Google, GitHub, OIDC genérico e Microsoft Entra ID / SAML em popups dedicados e teste o fluxo Authorization Code + PKCE ao vivo." />
       </div>
 
       {/* Identity Providers Grid */}
